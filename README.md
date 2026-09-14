@@ -1,57 +1,70 @@
-## Proto Input
-Proto Input is a set of libraries that enables split screen on PC games by hooking Windows functions and redirecting input from multiple keyboards/mice/controllers. ProtoInput contains many improvements over my previous works on [Universal Split Screen](https://universalsplitscreen.github.io/ "Universal Split Screen") and [ZeroFox\'s Nucleus Coop Mod](https://github.com/zerofox5866/nucleuscoop "ZeroFox's Nucleus Coop Mod"). The project is in a modular form so it can be easily used in any project with its C function API.
+# SplitPlay
 
-Proto Input is now included as part of [Nucleus Co-Op](https://nucleus-coop.github.io/). This is the best way to use Proto Input, as it is fully scriptable.
+Send an app or game to a **second screen** (for example a SpaceDesk display) and control it with the
+devices you choose, while your keyboard and mouse stay on the main screen and keep working normally.
 
-The main highlights are:
+SplitPlay is a portable, no-install tool. Unzip it, run `SplitPlay.exe`, pick your app, your display and
+your devices, and press **Start**.
 
-### In-game GUI control interface
-The GUI interface can be opened by pressing Right Ctrl + Right Alt + 1/2/3/4... (depending on the instance index).
-The GUI lets you enable/configure hooks, change input settings, Windows message filters, etc, all without restarting the game, so you can quickly setup a profile.
+## How it works
 
-![Proto Input Hooks GUI](https://raw.githubusercontent.com/Ilyaki/ProtoInput/master/img/ProtoInputHooks.png)
+SplitPlay injects a small set of hooks into the target process. Those hooks:
 
-### Proto Input Host
-Proto Input Host is a GUI tool that uses the API interface to set up input and hooks for processes. 
-You can effectively think of this as a souped up Universal Split Screen.
+- Keep the app running and receiving input even when it is **not** the focused window.
+- Send only the **devices you switch ON** to the app.
+- Hide the real keyboard/mouse from the app so they keep controlling Windows.
+- Optionally move and resize the window onto the display you choose.
 
-![Proto Input Host GUI](https://raw.githubusercontent.com/Ilyaki/ProtoInput/master/img/ProtoInputHost.png)
+This is built on top of the open-source SplitPlay hooking library (originally ProtoInput).
 
-### Smooth input
-Unlike my previous works, ProtoInput performs all input redirection from within the target process using hooks. This gives much smoother input, and better compatibility with games. Additionally I\'ve completely re-written most of the hooks. You should now be able to enable almost all hooks and have input working out of the box.
+## Quick start
 
-### API interface
-ProtoInput is modular by design so it can be used in another project. An external project can inject the ProtoInput hooks into a process by calling the functions in `protoloader.h`, e.g.
-```cpp
-auto path = LR"(C:\WINDOWS\system32\notepad.exe)";
-unsigned long pid;
+1. Plug in your controller (Xbox / XInput, or a DirectInput pad such as a Fantech Shooter).
+2. Make sure your second screen is connected and extended (not mirrored).
+3. Run `SplitPlay.exe`.
+4. In the app:
+   1. **Choose the app or game** - browse to an `.exe`, or pick it from the list of running apps
+      (search by name or window title).
+   2. **Choose the display** - select the screen the window should open on.
+   3. **Assign devices** - click a device to switch it ON/OFF for the app:
+      - **Controller** - pick the pad the app should use.
+      - **Mouse** / **Keyboard** - optional. Leave them OFF to keep them on the desktop.
+      Devices show their real product name, an icon, and an ON/OFF badge.
+   4. Press **Start**.
+5. While the app runs, use the rest of Windows normally - only the devices you switched ON control it.
 
-// Use startup injection to create a process and inject the hooks
-ProtoInstanceHandle instanceHandle = EasyHookInjectStartup(path, L"", 0, folderpath.c_str(), &pid);
+### Find out which device is which
 
-// Let the hooks know it's the 1st index (So open the GUI with Right Ctrl + Right Alt + 1)
-SetupState(instanceHandle, 1);
+Move a mouse or press a key, and the matching row **lights up green** so you know exactly which physical
+device that entry refers to before you turn it on or off.
 
-// Install the RegisterRawInput hook
-InstallHook(instanceHandle, RegisterRawInputHookID);
+## Controls
 
-// Tell the hooks to send mouse move, button, etc messages
-SetupMessagesToSend(instanceHandle, true, true, true, true);
+- `Right Ctrl + Right Alt + 1` opens the in-app overlay so you can tweak hooks and filters live.
+- `Home` locks/unlocks input (useful while setting up).
+- Keep `SplitPlay.exe` running while the app runs - it owns the connection to the target process.
 
-// Start a loop that sends WM_ACTIVATE, WM_ACTIVATEAPP, etc every 5 milliseconds
-StartFocusMessageLoop(instanceHandle, 5, true, true, true, true, true);
+## Building from source
 
-// The processes was created in a suspended state, so now wake it up
-WakeUpProcess(instanceHandle);
+Requirements: Visual Studio with the **Desktop development with C++** workload (C++17), Windows 10/11 SDK.
+
+The solution is at `src/SplitPlay/SplitPlay.sln`.
+
+To produce a portable release zip (builds x64 + x86 and packages everything):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\build-release.ps1
 ```
 
-The API interface is C-style, so you can call it from almost any language. Some additional functionality (e.g. input locking) is provided in ProtoInputUtil, separate from the hooks.
+This creates `SplitPlay.zip` containing a single `SplitPlay` folder with `SplitPlay.exe` and the hook DLLs.
 
-### Some minor things
-- Locking input, so the \'real\' mouse/keyboard does nothing, has been greatly improved, notably with suspening explorer.exe so you no longer accidentally alt+tab or open the Start menu.
-- Startup/Runtime hooking has been merged into one. The procedure for each is almost identical in the API.
-- ProtoInput will automatically detect and use a custom cursor if a game has one.
-- I\'ve cleaned up my old Windows message filter system, to give more control over each filter and to be able to block individual messages. Some games are particularly fussy when it comes to filtering messages, so this can be very useful.
-- More injection methods have been added, and some bugs fixed, so you can now inject hooks into games that didn\'t work before.
-- You can open a console window from within the hooks GUI. This lets you see the debug output without having to open a debug log.
-- (More of a note than an addition) You can attach a debugger to the game in Visual Studio, then set breakpoints/etc inside the hooks when debugging.
+## Notes
+
+- Run fullscreen games in **windowed** or **borderless** mode. Exclusive fullscreen can ignore being moved
+  to another display.
+- DirectInput controllers use a Dinput-to-Xinput translation; both triggers cannot be analog at once.
+- A few apps refuse to be repositioned - use borderless/windowed mode.
+
+## License
+
+MIT. See `LICENSE` (includes the original ProtoInput copyright notice, as required).

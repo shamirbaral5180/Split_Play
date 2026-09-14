@@ -42,7 +42,7 @@
 	// #define NTDDI_VERSION           NTDDI_WIN2KSP4
     // #define _WIN32_WINNT            0x500
 
-	#define NTDDI_VERSION           _NTDDI_WIN10
+	#define NTDDI_VERSION           NTDDI_WIN10
 	#define _WIN32_WINNT            _WIN32_WINNT_WIN10 
 
 
