@@ -239,6 +239,120 @@ std::vector<RunningProcessInfo> EnumerateWindowedProcesses()
 	return state.processes;
 }
 
+// ---------------- Cameras ----------------
+//
+// We enumerate imaging devices via SetupAPI (the "Camera" and "Image" classes).
+// Windows tracks which apps are currently using a camera under the
+// CapabilityAccessManager consent store, one subkey per app that has ever asked.
+
+static bool ReadCameraInUse(const std::wstring& deviceId)
+{
+	// Camera usage is recorded per-app, keyed by package/moniker. Any app whose
+	// "LastUsedTimeStop" is 0 is holding the camera open right now.
+	(void)deviceId;
+
+	HKEY root = nullptr;
+
+	if (RegOpenKeyExW(HKEY_CURRENT_USER,
+					  L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam",
+					  0, KEY_READ, &root) != ERROR_SUCCESS)
+		return false;
+
+	bool inUse = false;
+
+	for (DWORD i = 0; !inUse; ++i)
+	{
+		wchar_t subKeyName[512]{};
+		DWORD subKeyNameLen = sizeof(subKeyName) / sizeof(wchar_t);
+
+		if (RegEnumKeyExW(root, i, subKeyName, &subKeyNameLen, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
+			break;
+
+		HKEY appKey = nullptr;
+		if (RegOpenKeyExW(root, subKeyName, 0, KEY_READ, &appKey) != ERROR_SUCCESS)
+			continue;
+
+		DWORD lastUsedStop = 0;
+		DWORD size = sizeof(lastUsedStop);
+		DWORD type = 0;
+
+		if (RegQueryValueExW(appKey, L"LastUsedTimeStop", nullptr, &type,
+							 reinterpret_cast<LPBYTE>(&lastUsedStop), &size) == ERROR_SUCCESS &&
+			type == REG_QWORD && lastUsedStop == 0)
+		{
+			// LastUsedTimeStop == 0 means it never stopped -> currently in use
+			inUse = true;
+		}
+
+		RegCloseKey(appKey);
+	}
+
+	RegCloseKey(root);
+	return inUse;
+}
+
+std::vector<CameraInfo> EnumerateCameras()
+{
+	std::vector<CameraInfo> cameras{};
+
+	const GUID* classes[] = { &GUID_DEVCLASS_CAMERA, &GUID_DEVCLASS_IMAGE };
+
+	for (const auto* guid : classes)
+	{
+		HDEVINFO deviceInfo = SetupDiGetClassDevsW(guid, nullptr, nullptr, DIGCF_PRESENT);
+		if (deviceInfo == INVALID_HANDLE_VALUE)
+			continue;
+
+		SP_DEVINFO_DATA deviceInfoData{};
+		deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+		for (DWORD i = 0; SetupDiEnumDeviceInfo(deviceInfo, i, &deviceInfoData); ++i)
+		{
+			wchar_t friendlyName[512]{};
+			wchar_t description[512]{};
+
+			if (!SetupDiGetDeviceRegistryPropertyW(deviceInfo, &deviceInfoData, SPDRP_FRIENDLYNAME,
+												   nullptr, reinterpret_cast<PBYTE>(friendlyName),
+												   sizeof(friendlyName), nullptr))
+			{
+				SetupDiGetDeviceRegistryPropertyW(deviceInfo, &deviceInfoData, SPDRP_DEVICEDESC,
+												  nullptr, reinterpret_cast<PBYTE>(friendlyName),
+												  sizeof(friendlyName), nullptr);
+			}
+
+			SetupDiGetDeviceRegistryPropertyW(deviceInfo, &deviceInfoData, SPDRP_DEVICEDESC,
+											  nullptr, reinterpret_cast<PBYTE>(description),
+											  sizeof(description), nullptr);
+
+			if (friendlyName[0] == L'\0')
+				continue;
+
+			CameraInfo info{};
+			info.name = friendlyName;
+			if (!info.name.empty() && info.name.find(L'(') == std::wstring::npos && description[0] != L'\0')
+				info.name += std::wstring(L" (") + description + L")";
+
+			wchar_t instanceId[1024]{};
+			if (CM_Get_Device_IDW(deviceInfoData.DevInst, instanceId, sizeof(instanceId) / sizeof(wchar_t), 0) == CR_SUCCESS)
+				info.deviceId = instanceId;
+
+			info.inUse = ReadCameraInUse(info.deviceId);
+
+			cameras.push_back(std::move(info));
+		}
+
+		SetupDiDestroyDeviceInfoList(deviceInfo);
+	}
+
+	// De-duplicate by name (Camera and Image classes can overlap)
+	std::sort(cameras.begin(), cameras.end(),
+		[](const CameraInfo& a, const CameraInfo& b) { return a.name < b.name; });
+	cameras.erase(std::unique(cameras.begin(), cameras.end(),
+		[](const CameraInfo& a, const CameraInfo& b) { return a.name == b.name; }), cameras.end());
+
+	return cameras;
+}
+
 // ---------------- Live input activity tracking ----------------
 //
 // Mice and keyboards arrive as raw input (fed in by the host's raw input window),

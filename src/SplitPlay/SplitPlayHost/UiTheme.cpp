@@ -396,6 +396,33 @@ void DrawDeviceIcon(ImDrawList* draw, DeviceIcon icon, const ImVec2& min, const 
         draw->AddCircle(ImVec2(min.x + w * 0.62f, cy), h * 0.28f, color, 12, thick);
         break;
     }
+    case DeviceIcon::Microphone:
+    {
+        // Capsule head
+        const ImVec2 headMin(cx - w * 0.11f, min.y + h * 0.12f);
+        const ImVec2 headMax(cx + w * 0.11f, cy + h * 0.06f);
+        draw->AddRect(headMin, headMax, color, w * 0.11f, 0, thick);
+        // Pickup arc
+        draw->PathArcTo(ImVec2(cx, cy + h * 0.02f), h * 0.22f, 0.15f * 3.14159f, 0.85f * 3.14159f, 16);
+        draw->PathStroke(color, 0, thick);
+        // Stem and base
+        draw->AddLine(ImVec2(cx, cy + h * 0.24f), ImVec2(cx, cy + h * 0.38f), color, thick);
+        draw->AddLine(ImVec2(cx - w * 0.12f, cy + h * 0.38f), ImVec2(cx + w * 0.12f, cy + h * 0.38f), color, thick);
+        break;
+    }
+    case DeviceIcon::Camera:
+    {
+        // Body
+        const ImVec2 bodyMin(min.x + w * 0.08f, cy - h * 0.20f);
+        const ImVec2 bodyMax(max.x - w * 0.22f, cy + h * 0.20f);
+        draw->AddRect(bodyMin, bodyMax, color, 3.0f, 0, thick);
+        // Lens
+        draw->AddCircle(ImVec2(bodyMin.x + (bodyMax.x - bodyMin.x) * 0.5f, cy), h * 0.11f, color, 16, thick);
+        // Viewfinder bump
+        draw->AddTriangle(ImVec2(bodyMax.x, cy - h * 0.10f), ImVec2(bodyMax.x, cy + h * 0.10f),
+                          ImVec2(max.x - w * 0.08f, cy), color, thick);
+        break;
+    }
     }
 }
 
@@ -407,7 +434,7 @@ void DeviceIconWidget(DeviceIcon icon, float size)
 }
 
 bool DeviceRow(const char* id, DeviceIcon icon, const std::string& name, const std::string& type,
-               bool active, bool selected, bool glowing)
+               bool active, bool selected, bool glowing, bool readOnly)
 {
     ImGui::PushID(id);
 
@@ -486,6 +513,21 @@ bool DeviceRow(const char* id, DeviceIcon icon, const std::string& name, const s
         const ImVec2 badgeMax(badgeMin.x + badgeW, badgeMin.y + badgeH);
 
         draw->AddRectFilled(badgeMin, badgeMax, IM_COL32(34, 197, 94, 90), 10.0f);
+        draw->AddRect(badgeMin, badgeMax, badgeColor, 10.0f, 0, 1.0f);
+        draw->AddText(ImVec2(badgeMin.x + 9, badgeMin.y + 2), badgeColor, badge);
+    }
+    else if (readOnly)
+    {
+        // Identify-only rows (cameras, microphones) show AVAILABLE instead of ON/OFF
+        const char* badge = "AVAILABLE";
+        const ImU32 badgeColor = IM_COL32(148, 163, 184, 255);
+        const ImVec2 badgeText = ImGui::CalcTextSize(badge);
+        const float badgeW = badgeText.x + 18;
+        const float badgeH = 20.0f;
+        const ImVec2 badgeMin(rowMax.x - badgeW - 12, p.y + (rowHeight - badgeH) * 0.5f);
+        const ImVec2 badgeMax(badgeMin.x + badgeW, badgeMin.y + badgeH);
+
+        draw->AddRectFilled(badgeMin, badgeMax, (badgeColor & 0x00FFFFFF) | 0x22000000, 10.0f);
         draw->AddRect(badgeMin, badgeMax, badgeColor, 10.0f, 0, 1.0f);
         draw->AddText(ImVec2(badgeMin.x + 9, badgeMin.y + 2), badgeColor, badge);
     }

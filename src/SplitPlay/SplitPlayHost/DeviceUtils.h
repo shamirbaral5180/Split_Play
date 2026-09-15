@@ -21,6 +21,14 @@ struct RunningProcessInfo
 	bool hasWindow = false;
 };
 
+// A camera or other imaging device
+struct CameraInfo
+{
+	std::wstring name;          // friendly name, e.g. "Web Camera"
+	std::wstring deviceId;      // PnP device instance id
+	bool inUse = false;         // currently being used by some app
+};
+
 // A friendly name for a HID device, keyed by its VID/PID
 struct HidFriendlyName
 {
@@ -40,6 +48,9 @@ std::wstring LookupDeviceFriendlyName(const std::wstring& devicePath);
 
 // Enumerates raw input keyboards and mice connected to the system
 std::vector<DeviceInfo> EnumerateInputDevices(bool keyboards);
+
+// Enumerates cameras / imaging devices, flagging which are currently in use.
+std::vector<CameraInfo> EnumerateCameras();
 
 // Enumerates processes that have a visible top-level window (i.e. running apps/games)
 std::vector<RunningProcessInfo> EnumerateWindowedProcesses();

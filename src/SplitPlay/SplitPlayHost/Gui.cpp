@@ -2,6 +2,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cstring>
+#include <thread>
 #include <imgui_internal.h>
 #include <string>
 #include <vector>
@@ -954,13 +955,18 @@ static void RenderConfigurePane()
             for (int i = 0; i < (int)state.monitors.size(); ++i)
             {
                 const auto& monitor = state.monitors[i];
-                auto primary = MonitorLabel(monitor);
+                // Number the displays so "Display 1 / 2 / 3" matches the on-screen flash
+                auto primary = "Display " + std::to_string(i + 1) + "  -  " + MonitorLabel(monitor);
                 std::wstring secondary = monitor.isPrimary ? L"Primary display" : L"Secondary display";
                 const bool active = i < (int)cfg.monitorEnabled.size() && cfg.monitorEnabled[i];
 
                 if (DeviceRow(("mon" + std::to_string(i)).c_str(), DeviceIcon::Display,
                               primary, utf8_encode(secondary), active, active))
+                {
+                    // Clicking a display also flashes its number on that physical screen
+                    FlashMonitorNumber(monitor, i + 1);
                     ToggleMonitor(cfg.id, i);
+                }
             }
 
             const int count = CountAssignedMonitors(cfg);
@@ -970,6 +976,12 @@ static void RenderConfigurePane()
                 ImGui::TextWrapped("One display selected: the window will be locked to it and cannot be moved.");
             else
                 ImGui::TextWrapped("%d displays selected: the window may be moved between them, but not onto any other screen.", count);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+
+            ImGui::PushFont(g_FontSmall);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.53f, 0.87f, 0.63f, 1.0f));
+            ImGui::TextWrapped("Click a display to flash its number on that physical screen.");
             ImGui::PopStyleColor();
             ImGui::PopFont();
         }
@@ -1002,8 +1014,19 @@ static void RenderConfigurePane()
 
                 if (DeviceRow(("audio" + std::to_string(i)).c_str(), DeviceIcon::Speaker,
                               utf8_encode(out.name), utf8_encode(secondary), active, active))
+                {
+                    // Clicking an audio row plays a short test tone on that device
+                    const auto deviceId = out.id;
+                    std::thread([deviceId] { PlayTestTone(deviceId); }).detach();
                     ToggleAudioOutput(cfg.id, i);
+                }
             }
+
+            ImGui::PushFont(g_FontSmall);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.53f, 0.87f, 0.63f, 1.0f));
+            ImGui::TextWrapped("Click an output to play a test tone on that device.");
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
 
             ImGui::PushFont(g_FontSmall);
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.62f, 0.70f, 1.0f));
@@ -1135,6 +1158,70 @@ static void RenderConfigurePane()
                     else
                         AssignKeyboard(cfg.id, i, true);
                 }
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // ---- Cameras ----
+        ImGui::PushFont(g_FontBold);
+        ImGui::TextUnformatted("Cameras");
+        ImGui::PopFont();
+        ImGui::PushFont(g_FontSmall);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.62f, 0.70f, 1.0f));
+        ImGui::TextWrapped("Shown for identification. A camera lights up green while an app is using it.");
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::Spacing();
+
+        if (state.cameras.empty())
+            ImGui::TextDisabled("No camera detected");
+        else
+        {
+            for (int i = 0; i < (int)state.cameras.size(); ++i)
+            {
+                const auto& cam = state.cameras[i];
+                const std::wstring secondary = cam.inUse ? L"Camera - in use" : L"Camera - available";
+
+                // Cameras are display/identify only for now
+                DeviceRow(("cam" + std::to_string(i)).c_str(), DeviceIcon::Camera,
+                          utf8_encode(cam.name), utf8_encode(secondary), cam.inUse, false, cam.inUse, true);
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // ---- Microphones ----
+        ImGui::PushFont(g_FontBold);
+        ImGui::TextUnformatted("Microphones");
+        ImGui::PopFont();
+        ImGui::PushFont(g_FontSmall);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.62f, 0.70f, 1.0f));
+        ImGui::TextWrapped("Shown for identification. A microphone lights up green while sound is coming in.");
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::Spacing();
+
+        if (state.microphones.empty())
+            ImGui::TextDisabled("No microphone detected");
+        else
+        {
+            for (int i = 0; i < (int)state.microphones.size(); ++i)
+            {
+                const auto& mic = state.microphones[i];
+                const float level = GetMicrophoneLevel(mic.id);
+                const bool loud = level > 0.02f; // small threshold to ignore silence/noise
+
+                std::wstring secondary = mic.isDefault ? L"Microphone - default" : L"Microphone";
+                if (loud)
+                    secondary += L" - picking up sound";
+
+                DeviceRow(("mic" + std::to_string(i)).c_str(), DeviceIcon::Microphone,
+                          utf8_encode(mic.name), utf8_encode(secondary), false, false, loud, true);
             }
         }
 
@@ -1284,6 +1371,11 @@ void RenderSimpleMode()
     static int frameCounter = 0;
     if (frameCounter++ % 120 == 0)
         RefreshSimpleModeProcesses();
+
+    // Refresh camera "in use" state a few times a second (cheap: a few registry reads)
+    static int cameraCounter = 0;
+    if (cameraCounter++ % 30 == 0)
+        state.cameras = EnumerateCameras();
 
     const float availHeight = ImGui::GetContentRegionAvail().y;
 

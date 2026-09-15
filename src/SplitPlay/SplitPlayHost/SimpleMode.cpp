@@ -70,6 +70,20 @@ void RefreshSimpleModeDevices()
 	state.mice = EnumerateInputDevices(false);
 	state.keyboards = EnumerateInputDevices(true);
 	state.audioOutputs = EnumerateAudioOutputs();
+	state.microphones = EnumerateAudioInputs();
+	state.cameras = EnumerateCameras();
+
+	// Watch every microphone so its row can glow while sound is coming in
+	{
+		std::vector<std::wstring> micIds;
+		micIds.reserve(state.microphones.size());
+		for (const auto& mic : state.microphones)
+		{
+			micIds.push_back(mic.id);
+			WatchMicrophone(mic.id);
+		}
+		PruneMicrophoneWatches(micIds);
+	}
 
 	for (auto& instance : state.instances)
 	{

@@ -24,4 +24,12 @@ MonitorInfo GetMonitorForWindow(HWND hwnd);
 
 std::string MonitorLabel(const MonitorInfo& monitor);
 
+// ---- Identify helper: flash a big number/name on a specific monitor ----------
+// Shows a large, topmost overlay on the chosen monitor for a couple of seconds so
+// the user can see which physical screen a row refers to.
+void FlashMonitorNumber(const MonitorInfo& monitor, int displayNumber);
+
+// Clears any active monitor flash immediately.
+void ClearMonitorFlash();
+
 }

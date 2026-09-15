@@ -38,7 +38,9 @@ enum class DeviceIcon
 	Mouse,
 	Keyboard,
 	Display,
-	Speaker
+	Speaker,
+	Microphone,
+	Camera
 };
 
 // Draws an icon at the current cursor position and advances the cursor.
@@ -49,9 +51,10 @@ void DrawDeviceIcon(ImDrawList* draw, DeviceIcon icon, const ImVec2& min, const 
 
 // A full-width device row: icon, name, subtitle, and an on/off badge.
 // Set `glowing` when this device is the one currently being used (it lights up).
+// Set `readOnly` for identify-only rows (cameras/microphones) so the badge reads AVAILABLE.
 // Returns true when clicked.
 bool DeviceRow(const char* id, DeviceIcon icon, const std::string& name, const std::string& type,
-               bool active, bool selected, bool glowing = false);
+               bool active, bool selected, bool glowing = false, bool readOnly = false);
 
 // Helpers
 ImU32 ColorAccent();

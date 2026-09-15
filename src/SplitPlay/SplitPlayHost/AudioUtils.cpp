@@ -5,11 +5,13 @@
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
+#include <endpointvolume.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <combaseapi.h>
 
 #include <atomic>
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -115,6 +117,378 @@ std::vector<AudioOutputInfo> EnumerateAudioOutputs()
 		[](const AudioOutputInfo& a, const AudioOutputInfo& b) { return a.isDefault && !b.isDefault; });
 
 	return outputs;
+}
+
+// Shared helper: pull the friendly name and description off an endpoint
+static void ReadDeviceProperties(IMMDevice* device, std::wstring& name, std::wstring& description)
+{
+	IPropertyStore* props = nullptr;
+	if (FAILED(device->OpenPropertyStore(STGM_READ, &props)) || props == nullptr)
+		return;
+
+	PROPVARIANT value;
+	PropVariantInit(&value);
+
+	if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &value)) && value.vt == VT_LPWSTR)
+		name = value.pwszVal;
+	PropVariantClear(&value);
+
+	PropVariantInit(&value);
+	if (SUCCEEDED(props->GetValue(PKEY_Device_DeviceDesc, &value)) && value.vt == VT_LPWSTR)
+		description = value.pwszVal;
+	PropVariantClear(&value);
+
+	props->Release();
+}
+
+// Shared helper: get the id of the current default endpoint for a flow
+static std::wstring GetDefaultEndpointId(IMMDeviceEnumerator* enumerator, EDataFlow flow)
+{
+	std::wstring id;
+
+	IMMDevice* def = nullptr;
+	if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(flow, eConsole, &def)) && def != nullptr)
+	{
+		LPWSTR deviceId = nullptr;
+		if (SUCCEEDED(def->GetId(&deviceId)) && deviceId != nullptr)
+		{
+			id = deviceId;
+			CoTaskMemFree(deviceId);
+		}
+		def->Release();
+	}
+
+	return id;
+}
+
+std::vector<AudioInputInfo> EnumerateAudioInputs()
+{
+	std::vector<AudioInputInfo> inputs;
+
+	const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+	IMMDeviceEnumerator* enumerator = nullptr;
+	if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+								__uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&enumerator))))
+	{
+		if (SUCCEEDED(comHr))
+			CoUninitialize();
+		return inputs;
+	}
+
+	const std::wstring defaultId = GetDefaultEndpointId(enumerator, eCapture);
+
+	IMMDeviceCollection* collection = nullptr;
+	if (SUCCEEDED(enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &collection)) && collection != nullptr)
+	{
+		UINT count = 0;
+		collection->GetCount(&count);
+
+		for (UINT i = 0; i < count; ++i)
+		{
+			IMMDevice* device = nullptr;
+			if (FAILED(collection->Item(i, &device)) || device == nullptr)
+				continue;
+
+			AudioInputInfo info{};
+
+			LPWSTR id = nullptr;
+			if (SUCCEEDED(device->GetId(&id)) && id != nullptr)
+			{
+				info.id = id;
+				CoTaskMemFree(id);
+			}
+
+			ReadDeviceProperties(device, info.name, info.description);
+
+			if (info.name.empty())
+				info.name = L"Microphone";
+
+			info.isDefault = (!info.id.empty() && info.id == defaultId);
+
+			inputs.push_back(std::move(info));
+			device->Release();
+		}
+
+		collection->Release();
+	}
+
+	enumerator->Release();
+
+	if (SUCCEEDED(comHr))
+		CoUninitialize();
+
+	std::stable_sort(inputs.begin(), inputs.end(),
+		[](const AudioInputInfo& a, const AudioInputInfo& b) { return a.isDefault && !b.isDefault; });
+
+	return inputs;
+}
+
+// ---------------------------------------------------------------- identify: test tone
+
+bool PlayTestTone(const std::wstring& outputDeviceId)
+{
+	bool rendered = false;
+	const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+	IMMDeviceEnumerator* enumerator = nullptr;
+	IMMDevice* device = nullptr;
+	IAudioClient* client = nullptr;
+	IAudioRenderClient* render = nullptr;
+
+	do
+	{
+		if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+									__uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&enumerator))))
+			break;
+
+		if (FAILED(enumerator->GetDevice(outputDeviceId.c_str(), &device)) || device == nullptr)
+			break;
+
+		if (FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(&client))))
+			break;
+
+		const int sampleRate = 44100;
+		const int channels = 2;
+		const int bits = 16;
+		const int durationMs = 450;
+		const double frequency = 660.0;
+
+		WAVEFORMATEX format{};
+		format.wFormatTag = WAVE_FORMAT_PCM;
+		format.nChannels = channels;
+		format.nSamplesPerSec = sampleRate;
+		format.wBitsPerSample = bits;
+		format.nBlockAlign = (WORD)(channels * bits / 8);
+		format.nAvgBytesPerSec = sampleRate * format.nBlockAlign;
+
+		if (FAILED(client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+									  AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+									  10000000, 0, &format, nullptr)))
+			break;
+
+		UINT32 bufferFrames = 0;
+		if (FAILED(client->GetBufferSize(&bufferFrames)) || bufferFrames == 0)
+			break;
+
+		if (FAILED(client->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void**>(&render))) || render == nullptr)
+			break;
+
+		const UINT32 totalFrames = (UINT32)((sampleRate * durationMs) / 1000 + bufferFrames);
+
+		if (FAILED(client->Start()))
+			break;
+
+		UINT32 written = 0;
+		double phase = 0.0;
+		const double phaseStep = 2.0 * 3.14159265358979 * frequency / sampleRate;
+
+		while (written < totalFrames)
+		{
+			UINT32 padding = 0;
+			if (FAILED(client->GetCurrentPadding(&padding)))
+				break;
+
+			UINT32 free = bufferFrames - padding;
+			if (free == 0)
+			{
+				Sleep(5);
+				continue;
+			}
+
+			UINT32 toWrite = totalFrames - written;
+			if (toWrite > free)
+				toWrite = free;
+
+			BYTE* out = nullptr;
+			if (FAILED(render->GetBuffer(toWrite, &out)) || out == nullptr)
+				break;
+
+			short* samples = reinterpret_cast<short*>(out);
+
+			for (UINT32 i = 0; i < toWrite; ++i)
+			{
+				// Smooth envelope so the tone does not click at the edges
+				const UINT32 globalIndex = written + i;
+				const double progress = (double)globalIndex / (double)totalFrames;
+				const double envelope = progress < 0.05 ? progress / 0.05
+									  : (progress > 0.85 ? (1.0 - progress) / 0.15 : 1.0);
+
+				const short value = (short)(0.28 * envelope * 32767.0 * sin(phase));
+				phase += phaseStep;
+				if (phase > 2.0 * 3.14159265358979)
+					phase -= 2.0 * 3.14159265358979;
+
+				samples[i * 2 + 0] = value;
+				samples[i * 2 + 1] = value;
+			}
+
+			render->ReleaseBuffer(toWrite, 0);
+			written += toWrite;
+		}
+
+		Sleep(durationMs);
+		client->Stop();
+
+		rendered = (written > 0);
+
+	} while (false);
+
+	if (render != nullptr) render->Release();
+	if (client != nullptr) client->Release();
+	if (device != nullptr) device->Release();
+	if (enumerator != nullptr) enumerator->Release();
+
+	if (SUCCEEDED(comHr))
+		CoUninitialize();
+
+	return rendered;
+}
+
+// ---------------------------------------------------------------- mic meter
+
+namespace
+{
+	struct MicWatch
+	{
+		std::wstring id;
+		std::atomic<float> level{ 0.0f };
+		std::atomic<bool> stop{ false };
+		std::thread thread;
+	};
+
+	std::mutex g_micMutex;
+	std::vector<std::unique_ptr<MicWatch>> g_micWatches;
+
+	void MicWatchLoop(MicWatch* watch)
+	{
+		const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+		IMMDeviceEnumerator* enumerator = nullptr;
+		IMMDevice* device = nullptr;
+		IAudioClient* client = nullptr;
+		IAudioCaptureClient* capture = nullptr;
+		IAudioMeterInformation* meter = nullptr;
+
+		do
+		{
+			if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+										__uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&enumerator))))
+				break;
+
+			if (FAILED(enumerator->GetDevice(watch->id.c_str(), &device)) || device == nullptr)
+				break;
+
+			if (FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(&client))))
+				break;
+
+			WAVEFORMATEX* mixFormat = nullptr;
+			if (FAILED(client->GetMixFormat(&mixFormat)) || mixFormat == nullptr)
+				break;
+
+			const HRESULT initHr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 10000000, 0, mixFormat, nullptr);
+			CoTaskMemFree(mixFormat);
+
+			if (FAILED(initHr))
+				break;
+
+			if (FAILED(client->GetService(__uuidof(IAudioCaptureClient), reinterpret_cast<void**>(&capture))) || capture == nullptr)
+				break;
+
+			// The meter gives a cheap 0..1 peak without us having to read the audio
+			if (FAILED(client->GetService(__uuidof(IAudioMeterInformation), reinterpret_cast<void**>(&meter))) || meter == nullptr)
+				break;
+
+			if (FAILED(client->Start()))
+				break;
+
+			while (!watch->stop)
+			{
+				float peak = 0.0f;
+				if (SUCCEEDED(meter->GetPeakValue(&peak)))
+					watch->level.store(peak);
+
+				Sleep(50);
+			}
+
+			client->Stop();
+
+		} while (false);
+
+		if (meter != nullptr) meter->Release();
+		if (capture != nullptr) capture->Release();
+		if (client != nullptr) client->Release();
+		if (device != nullptr) device->Release();
+		if (enumerator != nullptr) enumerator->Release();
+
+		if (SUCCEEDED(comHr))
+			CoUninitialize();
+	}
+}
+
+void WatchMicrophone(const std::wstring& inputDeviceId)
+{
+	if (inputDeviceId.empty())
+		return;
+
+	std::lock_guard<std::mutex> lock(g_micMutex);
+
+	for (const auto& watch : g_micWatches)
+	{
+		if (watch->id == inputDeviceId)
+			return; // already watching
+	}
+
+	auto watch = std::make_unique<MicWatch>();
+	watch->id = inputDeviceId;
+	watch->thread = std::thread(MicWatchLoop, watch.get());
+
+	g_micWatches.push_back(std::move(watch));
+}
+
+float GetMicrophoneLevel(const std::wstring& inputDeviceId)
+{
+	std::lock_guard<std::mutex> lock(g_micMutex);
+
+	for (const auto& watch : g_micWatches)
+	{
+		if (watch->id == inputDeviceId)
+			return watch->level.load();
+	}
+
+	return 0.0f;
+}
+
+void PruneMicrophoneWatches(const std::vector<std::wstring>& keepIds)
+{
+	std::vector<std::unique_ptr<MicWatch>> removed;
+
+	{
+		std::lock_guard<std::mutex> lock(g_micMutex);
+
+		for (auto it = g_micWatches.begin(); it != g_micWatches.end();)
+		{
+			const bool keep = std::find(keepIds.begin(), keepIds.end(), (*it)->id) != keepIds.end();
+
+			if (keep)
+			{
+				++it;
+			}
+			else
+			{
+				(*it)->stop = true;
+				removed.push_back(std::move(*it));
+				it = g_micWatches.erase(it);
+			}
+		}
+	}
+
+	// Join outside the lock so a worker can finish without deadlocking
+	for (auto& watch : removed)
+	{
+		if (watch->thread.joinable())
+			watch->thread.join();
+	}
 }
 
 // ---------------------------------------------------------------- routing

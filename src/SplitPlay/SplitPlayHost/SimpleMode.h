@@ -85,6 +85,8 @@ struct AppState
 	std::vector<DeviceInfo> mice;
 	std::vector<DeviceInfo> keyboards;
 	std::vector<AudioOutputInfo> audioOutputs;
+	std::vector<AudioInputInfo> microphones;
+	std::vector<CameraInfo> cameras;
 };
 
 AppState& GetAppState();

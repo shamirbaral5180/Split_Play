@@ -1,34 +1,30 @@
-# SplitPlay 1.3.0
+# SplitPlay 1.3.1
 
-Output devices, automatic cleanup, and a friendlier look.
+Cameras and microphones are now shown, and you can identify every device at a glance.
 
 ## What's new
 
-- **Assign audio output devices.** Each app now has an "Audio output(s)" section listing every connected
-  output device (speakers, headphones, virtual cables). Tick one or more and that app's sound is routed to
-  them. Leave them all OFF to keep normal system audio.
-  - *Route-only:* the app's audio is sent to the chosen device(s); other apps are not blocked from the
-    physical device (Windows cannot do that without a custom audio driver, and SplitPlay does not pretend
-    to). Uses WASAPI process loopback, so **Windows 10 2004 or newer** is required. On older builds audio
-    is simply left untouched.
+- **Cameras are listed.** Every connected camera appears in the device list. A camera's row lights up green
+  while an app is using it, so you can tell which one is live. (Identify-only for now.)
 
-- **Assign several displays to one app.**
-  - **One display selected** → the window is locked to it and cannot be moved off it.
-  - **Several displays selected** → the window may be moved between those screens, but never onto a screen
-    you did not assign.
+- **Microphones are listed.** Every connected microphone appears, default first. A microphone's row lights
+  up green while sound is being picked up, using a live peak meter.
 
-- **Automatic cleanup when an app exits.** SplitPlay watches each target process. The moment it is closed,
-  killed from the taskbar, or crashes, SplitPlay releases the assigned devices and stops audio routing.
-  Your mouse and keyboard are never left swallowed system-wide. Setups remain until you remove them.
+- **Click an audio output to hear it.** Clicking an audio output row plays a short test tone **on that
+  specific device**, so you can confirm which speaker/headphone/cable it is.
 
-- **Nicer README** with a clear explanation of what SplitPlay is, who it is for, and how to use it.
+- **Click a display to see it.** Clicking a display row flashes a big "Display 1 / 2 / 3" label on that
+  physical monitor for a couple of seconds.
+
+- **Displays are numbered** in the list ("Display 1", "Display 2", ...) to match the on-screen flash.
 
 ## Everything from before
 
 - Add several apps at once — each with its own display, devices and audio, running side by side.
 - A device (mouse / keyboard / controller) belongs to only one app at a time.
-- Rows light up green when you use a device so you can tell which is which.
-- App windows stay on their assigned display.
+- One display assigned = window locked to it. Several = it may move between them, but nowhere else.
+- Per-app audio routing to any number of output devices (route-only, Windows 10 2004+).
+- Assigned devices are released automatically when an app is closed, killed, or crashes.
 - Remove an app with the **Remove** button or right-click in the sidebar.
 
 ## Quick start

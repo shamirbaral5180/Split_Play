@@ -3,6 +3,8 @@
 
 #include <cwchar>
 #include <algorithm>
+#include <mutex>
+#include <thread>
 #include <utility>
 
 namespace SplitPlayHost
@@ -103,6 +105,193 @@ std::string MonitorLabel(const MonitorInfo& monitor)
 		label += L" [" + monitor.deviceName + L"]";
 
 	return utf8_encode(label);
+}
+
+// ---------------- Identify helper: big number overlay on a monitor ----------------
+//
+// The overlay runs on its own thread with its own message pump, because the main
+// GUI loop only pumps messages for its own window and would never paint this one.
+
+namespace
+{
+	const wchar_t* kFlashClass = L"SplitPlayMonitorFlash";
+
+	std::mutex g_flashMutex;
+	std::thread g_flashThread;
+	bool g_flashThreadRunning = false;
+
+	// Parameters handed to the overlay thread
+	struct FlashParams
+	{
+		MonitorInfo monitor{};
+		int displayNumber = 1;
+	};
+
+	LRESULT CALLBACK FlashWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+	{
+		switch (msg)
+		{
+		case WM_PAINT:
+		{
+			PAINTSTRUCT ps{};
+			HDC hdc = BeginPaint(hWnd, &ps);
+
+			RECT rect{};
+			GetClientRect(hWnd, &rect);
+
+			// Dim the whole monitor so it is obvious which screen this is
+			HBRUSH dim = CreateSolidBrush(RGB(10, 12, 18));
+			FillRect(hdc, &rect, dim);
+			DeleteObject(dim);
+
+			const auto* textPtr = reinterpret_cast<const std::wstring*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+			const std::wstring text = textPtr != nullptr ? *textPtr : L"";
+
+			// Big centred number/name so the user can read it from across the room
+			HFONT font = CreateFontW(-(rect.bottom - rect.top) / 4, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+									 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+									 CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+			HFONT oldFont = (HFONT)SelectObject(hdc, font);
+
+			SetBkMode(hdc, TRANSPARENT);
+			SetTextColor(hdc, RGB(129, 140, 248));
+			DrawTextW(hdc, text.c_str(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+			SelectObject(hdc, oldFont);
+			DeleteObject(font);
+
+			EndPaint(hWnd, &ps);
+			return 0;
+		}
+		case WM_ERASEBKGND:
+			return 1; // painted in WM_PAINT
+		case WM_TIMER:
+			DestroyWindow(hWnd);
+			return 0;
+		case WM_DESTROY:
+			PostQuitMessage(0);
+			return 0;
+		}
+
+		return DefWindowProcW(hWnd, msg, wParam, lParam);
+	}
+
+	void FlashThreadMain(FlashParams params)
+	{
+		const auto hinstance = GetModuleHandleW(nullptr);
+
+		static bool registered = false;
+		if (!registered)
+		{
+			WNDCLASSW wc{};
+			wc.lpfnWndProc = FlashWndProc;
+			wc.hInstance = hinstance;
+			wc.hbrBackground = nullptr;
+			wc.lpszClassName = kFlashClass;
+			wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+
+			if (!RegisterClassW(&wc))
+			{
+				std::lock_guard<std::mutex> lock(g_flashMutex);
+				g_flashThreadRunning = false;
+				return;
+			}
+
+			registered = true;
+		}
+
+		const std::wstring text = L"Display " + std::to_wstring(params.displayNumber);
+		auto* textPtr = new std::wstring(text);
+
+		HWND hwnd = CreateWindowExW(
+			WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+			kFlashClass, L"",
+			WS_POPUP,
+			params.monitor.x, params.monitor.y, params.monitor.width, params.monitor.height,
+			nullptr, nullptr, hinstance, nullptr);
+
+		if (hwnd == nullptr)
+		{
+			delete textPtr;
+
+			std::lock_guard<std::mutex> lock(g_flashMutex);
+			g_flashThreadRunning = false;
+			return;
+		}
+
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(textPtr));
+
+		ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+		SetWindowPos(hwnd, HWND_TOPMOST, params.monitor.x, params.monitor.y,
+					 params.monitor.width, params.monitor.height,
+					 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+		// Close itself after 2 seconds
+		SetTimer(hwnd, 1, 2000, nullptr);
+
+		// Own message pump so the overlay paints and the timer fires
+		MSG msg;
+		ZeroMemory(&msg, sizeof(msg));
+		while (GetMessageW(&msg, nullptr, 0, 0) > 0)
+		{
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
+
+		delete textPtr;
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+
+		std::lock_guard<std::mutex> lock(g_flashMutex);
+		g_flashThreadRunning = false;
+	}
+}
+
+void ClearMonitorFlash()
+{
+	std::thread toJoin;
+
+	{
+		std::lock_guard<std::mutex> lock(g_flashMutex);
+
+		if (!g_flashThread.joinable())
+			return;
+
+		if (g_flashThreadRunning)
+		{
+			// Ask the overlay thread's windows to close, then wait for it below
+			const DWORD threadId = GetThreadId(g_flashThread.native_handle());
+
+			EnumThreadWindows(threadId,
+							  [](HWND hwnd, LPARAM) -> BOOL
+							  {
+								  PostMessageW(hwnd, WM_CLOSE, 0, 0);
+								  return TRUE;
+							  },
+							  0);
+
+			PostThreadMessageW(threadId, WM_QUIT, 0, 0);
+		}
+
+		// Always take ownership so a finished thread is joined before reuse
+		toJoin = std::move(g_flashThread);
+	}
+
+	if (toJoin.joinable())
+		toJoin.join();
+}
+
+void FlashMonitorNumber(const MonitorInfo& monitor, int displayNumber)
+{
+	// Replace any overlay that is already showing (also joins a finished thread)
+	ClearMonitorFlash();
+
+	FlashParams params{};
+	params.monitor = monitor;
+	params.displayNumber = displayNumber;
+
+	std::lock_guard<std::mutex> lock(g_flashMutex);
+	g_flashThreadRunning = true;
+	g_flashThread = std::thread(FlashThreadMain, params);
 }
 
 }

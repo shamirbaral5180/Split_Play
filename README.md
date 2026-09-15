@@ -47,6 +47,21 @@ Everything else on your PC keeps working exactly as before.
 | 🎬 **Media or emulator on the side** | Keep a controller-driven app on the TV and still type on your PC |
 | 🧑‍💻 **AFK / idle apps** | Keep a game or tool receiving controller input even when it isn't focused |
 | 🔊 **Private audio** | Send one app's sound to headphones while everything else uses speakers |
+| 🎥 **See what's plugged in** | Every mouse, keyboard, controller, camera, microphone, display and audio output, in one list |
+
+### Identify any device at a glance
+
+Not sure which "USB Input Device" is which? Just use it:
+
+| Device | What happens |
+|---|---|
+| 🖱️ Mouse | Row lights up when you move it |
+| ⌨️ Keyboard | Row lights up when you press a key |
+| 🎮 Controller | Row lights up when you move a stick or press a button |
+| 🎙️ Microphone | Row lights up when sound is detected |
+| 🎥 Camera | Row lights up while an app is using it |
+| 🔊 Audio output | **Click it** to play a test tone **on that device** |
+| 🖥️ Display | **Click it** to flash "Display 1/2/3" on that screen |
 
 ---
 
@@ -62,9 +77,9 @@ Everything else on your PC keeps working exactly as before.
    | Step | What to do |
    |---|---|
    | **1. Choose the app or game** | Browse to an `.exe`, or attach to an app that's already running |
-   | **2. Choose the display(s)** | One screen = locked there. Several = the window may move between them |
-   | **2b. Choose audio output(s)** | Send the app's sound to any output device(s), or leave OFF |
-   | **3. Assign devices** | Click a mouse / keyboard / controller to switch it ON for this app |
+   | **2. Choose the display(s)** | One screen = locked there. Several = the window may move between them. Click a row to flash its number |
+   | **2b. Choose audio output(s)** | Send the app's sound to any output device(s). Click a row to hear a test tone on it |
+   | **3. Assign devices** | Click a mouse / keyboard / controller to switch it ON for this app. Cameras and microphones are listed for identification |
    | **4. Start** | Press **Start this app** |
 
 6. Want another app at the same time? Press **➕ Add app** again. Each app is independent.
@@ -113,6 +128,16 @@ window. Devices you leave OFF keep controlling Windows as usual.
 
 Move a mouse, press a key, or wiggle your controller — the matching row **lights up green** 🟢 so you know
 exactly which physical device each entry is, before you toggle it.
+
+- **Microphones** light up while sound is coming in.
+- **Cameras** light up while an app is using them.
+- **Click an audio output** to play a short test tone **on that device**, so you can hear which one it is.
+- **Click a display** to flash its number ("Display 1", "Display 2") on that physical screen.
+
+### Cameras and microphones are listed too
+
+SplitPlay shows every connected **camera** and **microphone** in the device list so you can see what is
+plugged in and identify it. These are **identify-only** for now — they are not yet redirected into the app.
 
 ### Displays: one means *locked*, several mean *roam*
 
