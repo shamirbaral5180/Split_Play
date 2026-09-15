@@ -380,6 +380,22 @@ void DrawDeviceIcon(ImDrawList* draw, DeviceIcon icon, const ImVec2& min, const 
         draw->AddLine(ImVec2(cx - w * 0.14f, max.y - h * 0.08f), ImVec2(cx + w * 0.14f, max.y - h * 0.08f), color, thick);
         break;
     }
+    case DeviceIcon::Speaker:
+    {
+        // Speaker cone body
+        const ImVec2 bodyMin(min.x + w * 0.12f, cy - h * 0.14f);
+        const ImVec2 bodyMax(min.x + w * 0.34f, cy + h * 0.14f);
+        draw->AddRectFilled(bodyMin, bodyMax, color, 2.0f);
+        // Cone
+        draw->AddTriangle(ImVec2(bodyMax.x, bodyMin.y), ImVec2(bodyMax.x, bodyMax.y),
+                          ImVec2(min.x + w * 0.52f, cy + h * 0.30f), color, thick);
+        draw->AddTriangle(ImVec2(bodyMax.x, bodyMin.y), ImVec2(min.x + w * 0.52f, cy - h * 0.30f),
+                          ImVec2(min.x + w * 0.52f, cy + h * 0.30f), color, thick);
+        // Sound waves
+        draw->AddCircle(ImVec2(min.x + w * 0.62f, cy), h * 0.16f, color, 12, thick);
+        draw->AddCircle(ImVec2(min.x + w * 0.62f, cy), h * 0.28f, color, 12, thick);
+        break;
+    }
     }
 }
 

@@ -108,7 +108,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib</AdditionalDependencies>
+      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib;Mmdevapi.lib;Ole32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)$(Configuration);$(SolutionDir)build\Win32\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -127,7 +127,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib</AdditionalDependencies>
+      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib;Mmdevapi.lib;Ole32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)$(Configuration);$(SolutionDir)build\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -150,7 +150,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib</AdditionalDependencies>
+      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib;Mmdevapi.lib;Ole32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)$(Configuration);$(SolutionDir)build\Win32\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -173,7 +173,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib</AdditionalDependencies>
+      <AdditionalDependencies>BlackBone.lib;SplitPlayLoader$(PlatformArchitecture).lib;SplitPlayUtilStatic$(PlatformArchitecture).lib;opengl32.lib;Comdlg32.lib;Dinput8.lib;dxguid.lib;Mmdevapi.lib;Ole32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)$(Configuration);$(SolutionDir)build\x64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -189,6 +189,7 @@
     <ClCompile Include="..\..\..\lib\imgui\imgui_tables.cpp" />
     <ClCompile Include="..\..\..\lib\imgui\imgui_widgets.cpp" />
     <ClCompile Include="ControllerUtils.cpp" />
+    <ClCompile Include="AudioUtils.cpp" />
     <ClCompile Include="DeviceUtils.cpp" />
     <ClCompile Include="DisplayUtils.cpp" />
     <ClCompile Include="Gui.cpp" />
@@ -202,6 +203,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ControllerUtils.h" />
+    <ClInclude Include="AudioUtils.h" />
     <ClInclude Include="DeviceUtils.h" />
     <ClInclude Include="DisplayUtils.h" />
     <ClInclude Include="FontData.h" />

@@ -4,6 +4,7 @@
 #include "DisplayUtils.h"
 #include "ControllerUtils.h"
 #include "DeviceUtils.h"
+#include "AudioUtils.h"
 
 namespace SplitPlayHost
 {
@@ -21,8 +22,10 @@ struct InstanceConfig
 	unsigned long runningPid = 0;
 	std::wstring runningProcessName;
 
-	// Target display
-	int selectedMonitorIndex = 0;
+	// Target displays: which monitors this app may use (parallel to AppState::monitors).
+	// Exactly one  -> the window is locked to that monitor.
+	// Two or more  -> the window may move freely within their combined area.
+	std::vector<bool> monitorEnabled;
 	bool moveWindowToDisplay = true;
 
 	// Devices (parallel to the shared device lists in AppState)
@@ -34,6 +37,11 @@ struct InstanceConfig
 
 	int selectedKeyboardIndex = 0;
 	std::vector<bool> keyboardEnabled;
+
+	// Audio outputs: which output devices this app's sound is routed to
+	// (parallel to AppState::audioOutputs). Two or more = play to all of them.
+	std::vector<bool> audioEnabled;
+	bool routeAudio = false;
 
 	// Options
 	bool showFakeCursor = true;
@@ -48,8 +56,12 @@ struct InstanceConfig
 
 	// Window locking: remember what we forced so we can re-apply if the app moves itself
 	bool windowLockEnabled = false;
+	bool lockWindowStrict = true;   // true = exact rect; false = may move within the bounds
 	HWND targetHwnd = nullptr;
 	unsigned long targetPid = 0;
+
+	// Handle used to notice when the target process exits (releases devices automatically)
+	void* targetProcessHandle = nullptr;
 	int lockX = 0;
 	int lockY = 0;
 	int lockWidth = 0;
@@ -72,6 +84,7 @@ struct AppState
 	std::vector<ControllerInfo> controllers;
 	std::vector<DeviceInfo> mice;
 	std::vector<DeviceInfo> keyboards;
+	std::vector<AudioOutputInfo> audioOutputs;
 };
 
 AppState& GetAppState();
@@ -98,6 +111,20 @@ bool IsControllerIndexAssigned(unsigned int controllerIndex);
 void AssignController(int instanceId, int index, bool enabled);
 void AssignMouse(int instanceId, int index, bool enabled);
 void AssignKeyboard(int instanceId, int index, bool enabled);
+
+// Monitors: an app may pick one (locked) or several (free to move within them)
+void ToggleMonitor(int instanceId, int index);
+bool IsMonitorUsedByOther(int instanceId, int index);
+
+// Audio outputs: an app may route its sound to any number of output devices
+void ToggleAudioOutput(int instanceId, int index);
+
+// Number of monitors assigned to this instance
+int CountAssignedMonitors(const InstanceConfig& cfg);
+
+// Starts / stops per-app audio routing (route-only, see AudioRouter).
+void StartInstanceAudio(int id);
+void StopInstanceAudio(int id);
 
 // Binds the union of all assigned devices from running instances to the input locker.
 void RebindAllInputDevices();

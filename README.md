@@ -1,81 +1,176 @@
-# SplitPlay
+<div align="center">
 
-Send an app or game to a **second screen** (for example a SpaceDesk display) and control it with the
-devices you choose, while your keyboard and mouse stay on the main screen and keep working normally.
+# 🎮 SplitPlay
 
-SplitPlay is a portable, no-install tool. Unzip it, run `SplitPlay.exe`, pick your app, your display and
-your devices, and press **Start**.
+**Send any app to another screen and control it with the devices you choose — while your main keyboard and mouse keep working normally.**
 
-You can add **several apps at once**. Each one gets its own display and its own devices, and they all run
-side by side. The list of added apps lives in the left sidebar; a status dot shows which are running.
+SplitPlay lets one PC behave like several: multiple apps, each on its own screen, each with its own controller, mouse, keyboard and speakers.
 
-## How it works
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
+[![Architecture](https://img.shields.io/badge/arch-x64%20%7C%20x86-informational)](#)
+[![Portable](https://img.shields.io/badge/portable-no%20install-22c55e)](#)
+[![License](https://img.shields.io/badge/license-MIT-blue)](#license)
 
-SplitPlay injects a small set of hooks into the target process. Those hooks:
+</div>
 
-- Keep the app running and receiving input even when it is **not** the focused window.
-- Send only the **devices you switch ON** to the app.
-- Hide the real keyboard/mouse from the app so they keep controlling Windows.
-- Optionally move and resize the window onto the display you choose.
+---
 
-This is built on top of the open-source SplitPlay hooking library (originally ProtoInput).
+## ✨ What is SplitPlay?
 
-## Quick start
+Have you ever wanted to play a game on a spare screen or tablet while your main screen stays free for
+work, chat or browsing? Or run two games at once, each with its own controller?
 
-1. Plug in your controller (Xbox / XInput, or a DirectInput pad such as a Fantech Shooter).
-2. Make sure your second screen is connected and extended (not mirrored).
-3. Run `SplitPlay.exe`.
-4. Use **+ Add app** in the left sidebar to create an app, then in the **Setup** tab:
-   1. **Choose the app or game** - browse to an `.exe`, or pick it from the list of running apps
-      (search by name or window title).
-   2. **Choose the display** - select the screen the window should open on.
-   3. **Assign devices** - click a device to switch it ON/OFF for the app:
-      - **Controller** - pick the pad the app should use.
-      - **Mouse** / **Keyboard** - optional. Leave them OFF to keep them on the desktop.
-      Devices show their real product name, an icon, and an ON/OFF badge.
-   4. Press **Start this app**.
-5. Repeat **+ Add app** for another app if you want. Open the **Running** tab to see every app, its
-   display and its devices, and to start/stop each one.
-6. While apps run, use the rest of Windows normally - only the devices you switched ON control them.
+**SplitPlay does exactly that.**
 
-### Add as many apps as you like
+It gently hooks into the apps you choose and gives them a *private set of devices*: the controller you
+assigned, the mouse you assigned, the keyboard you assigned, and the screen and speakers you assigned.
+Everything else on your PC keeps working exactly as before.
 
-Each app is a separate entry in the left sidebar. Every entry has its own display and its own devices, so
-you can run two (or more) apps at once on different screens. The dot next to a name is green while that app
-is running.
+> One computer. Several "players". No extra hardware, no install, no reboot.
 
-To delete an app, select it and press **Remove** at the top of the Setup tab, or **right-click** its row in
-the sidebar and choose *Remove app*. Apps must be stopped before they can be removed.
+<div align="center">
+
+| 🖥️ Move the window | 🎮 Pick the controller | 🖱️⌨️ Share only what you want | 🔊 Route the sound |
+|:---:|:---:|:---:|:---:|
+| Lock an app to one screen, or let it roam between several | Any Xbox / XInput / DirectInput pad | Assigned devices go to the app, the rest stay on your desktop | Send an app's audio to the output you choose |
+
+</div>
+
+---
+
+## 🚀 Why people use it
+
+| Use case | How SplitPlay helps |
+|---|---|
+| 🎯 **Second-screen gaming** | Play on a tablet (e.g. SpaceDesk) or TV while the main monitor stays usable |
+| 🕹️ **Two games at once** | Run two apps side by side, each with its own controller and screen |
+| 🎬 **Media or emulator on the side** | Keep a controller-driven app on the TV and still type on your PC |
+| 🧑‍💻 **AFK / idle apps** | Keep a game or tool receiving controller input even when it isn't focused |
+| 🔊 **Private audio** | Send one app's sound to headphones while everything else uses speakers |
+
+---
+
+## 📦 Quick start
+
+1. **Download** the latest `SplitPlay.zip` from [Releases](../../releases) and unzip it anywhere.
+2. **Plug in** your controller (Xbox / XInput, or a DirectInput pad).
+3. Make sure your second screen is **extended**, not mirrored.
+   *(Windows: Settings → System → Display → Extend these displays)*
+4. **Run** `SplitPlay.exe`.
+5. Press **➕ Add app** in the left sidebar and set it up in the **Setup** tab:
+
+   | Step | What to do |
+   |---|---|
+   | **1. Choose the app or game** | Browse to an `.exe`, or attach to an app that's already running |
+   | **2. Choose the display(s)** | One screen = locked there. Several = the window may move between them |
+   | **2b. Choose audio output(s)** | Send the app's sound to any output device(s), or leave OFF |
+   | **3. Assign devices** | Click a mouse / keyboard / controller to switch it ON for this app |
+   | **4. Start** | Press **Start this app** |
+
+6. Want another app at the same time? Press **➕ Add app** again. Each app is independent.
+7. Open the **Running** tab to see everything at a glance and start/stop each app.
+
+---
+
+## 🧠 How it actually works
+
+SplitPlay injects a small set of hooks into each target process. Those hooks:
+
+- keep the app running and receiving input even when it **isn't** the focused window,
+- forward **only the devices you switched ON** to that app,
+- hide the real keyboard/mouse from the app so they keep controlling Windows,
+- move the window onto the display(s) you chose and keep it there,
+- route the app's audio to the output device(s) you chose.
+
+<div align="center">
+
+```text
+        YOUR PC                                    APP  (e.g. a game)
+ ┌────────────────────┐                         ┌────────────────────┐
+ │  Main screen       │                         │  Assigned screen   │
+ │  (desktop, work)   │                         │  (game window)     │
+ └────────────────────┘                         └────────────────────┘
+   Mouse A  Keyboard A      ──── assigned ───►     receives these
+   Mouse B  Keyboard B      ──── NOT assigned ──►  stays on desktop
+   Controller 1             ──── assigned ───►     controls the game
+   Speakers (main)          ──── NOT assigned ──►  keeps system audio
+   Headphones               ──── assigned ───►     plays the game audio
+```
+
+</div>
+
+---
+
+## 🔒 What "assigned" really means
+
+### Input devices belong to one app
+
+A mouse, keyboard or controller can be assigned to **only one app at a time**. Switch it ON for one app
+and it's automatically switched OFF everywhere else — so a click or key press can never land in the wrong
+window. Devices you leave OFF keep controlling Windows as usual.
 
 ### Find out which device is which
 
-Move a mouse, press a key, or move your controller, and the matching row **lights up green** so you know
-exactly which physical device that entry refers to before you turn it on or off.
+Move a mouse, press a key, or wiggle your controller — the matching row **lights up green** 🟢 so you know
+exactly which physical device each entry is, before you toggle it.
 
-### A device belongs to one app
+### Displays: one means *locked*, several mean *roam*
 
-A mouse, keyboard or controller can be assigned to only **one** app at a time. Switching it ON for one app
-automatically switches it OFF for every other app, so input never leaks into the wrong window. Everything
-you left OFF keeps controlling Windows normally.
+- **One display selected** → the window is locked to it and cannot be moved off it.
+- **Several displays selected** → the window may be moved between those screens, but never onto a screen
+  you didn't assign.
 
-### The window stays on its display
+### Audio: route-only
 
-Once you assign a display, SplitPlay moves the app window there and **keeps it locked** to that display
-and size. If the app tries to move or resize itself, it is put back. Each app is locked to its own display.
+When you assign an output device, the app's sound is captured and replayed to **that device**. This is
+*route-only*: Windows has no way to stop other apps from using a physical speaker without a custom audio
+driver, so SplitPlay doesn't pretend to. It sends **this app's** audio where you asked — nothing else
+changes. Requires Windows 10 version 2004 or newer.
 
-## Controls
+### It cleans up after itself
 
-- `Right Ctrl + Right Alt + 1` opens the in-app overlay so you can tweak hooks and filters live.
-- `Home` locks/unlocks input (useful while setting up).
-- Keep `SplitPlay.exe` running while the app runs - it owns the connection to the target process.
+The moment the app is closed, killed from the taskbar, or crashes, SplitPlay notices, **releases the
+devices**, and stops routing audio. Your mouse and keyboard are never left stuck on the app. You can also
+press **Stop** any time. The setup stays until you remove it.
 
-## Building from source
+### Deleting an app
 
-Requirements: Visual Studio with the **Desktop development with C++** workload (C++17), Windows 10/11 SDK.
+Select it and press **Remove** at the top of the Setup tab, or **right-click** its row in the sidebar and
+choose *Remove app*. Stop the app first.
+
+---
+
+## 🎛️ Controls
+
+| Key | Action |
+|---|---|
+| `Right Ctrl + Right Alt + 1` | Open the in-app hook overlay for advanced tweaking |
+| `End` | Lock / unlock input (handy while setting up) |
+| **Home** | Toggle the fake in-game cursor (if enabled) |
+
+Keep `SplitPlay.exe` running while your apps run — it owns the connection to each target process.
+
+---
+
+## ⚠️ Good to know
+
+- Run fullscreen games in **windowed** or **borderless** mode. Exclusive fullscreen can ignore being moved
+  to another display.
+- DirectInput controllers use a Dinput-to-Xinput translation; both triggers cannot be analog at once.
+- Per-app audio uses **process loopback**, available on **Windows 10 2004+**. On older builds, audio is
+  simply left untouched.
+- Some apps refuse to be repositioned — windowed/borderless usually fixes it.
+
+---
+
+## 🛠️ Building from source
+
+**Requirements:** Visual Studio with the **Desktop development with C++** workload (C++17) and the
+Windows 10/11 SDK.
 
 The solution is at `src/SplitPlay/SplitPlay.sln`.
 
-To produce a portable release zip (builds x64 + x86 and packages everything):
+To produce the portable release zip (builds x64 + x86 and packages everything):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-release.ps1
@@ -83,13 +178,8 @@ powershell -ExecutionPolicy Bypass -File tools\build-release.ps1
 
 This creates `SplitPlay.zip` containing a single `SplitPlay` folder with `SplitPlay.exe` and the hook DLLs.
 
-## Notes
+---
 
-- Run fullscreen games in **windowed** or **borderless** mode. Exclusive fullscreen can ignore being moved
-  to another display.
-- DirectInput controllers use a Dinput-to-Xinput translation; both triggers cannot be analog at once.
-- A few apps refuse to be repositioned - use borderless/windowed mode.
+## 📄 License
 
-## License
-
-MIT. See `LICENSE` (includes the original ProtoInput copyright notice, as required).
+MIT. See `LICENSE` — includes the original ProtoInput copyright notice, as required.

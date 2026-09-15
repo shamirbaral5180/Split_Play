@@ -37,7 +37,8 @@ enum class DeviceIcon
 	Controller,
 	Mouse,
 	Keyboard,
-	Display
+	Display,
+	Speaker
 };
 
 // Draws an icon at the current cursor position and advances the cursor.

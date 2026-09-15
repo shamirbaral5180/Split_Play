@@ -1,34 +1,43 @@
-# SplitPlay 1.1.0
+# SplitPlay 1.3.0
 
-Multi-app support. You can now add several apps at once, each with its own display and its own devices,
-running side by side.
+Output devices, automatic cleanup, and a friendlier look.
 
 ## What's new
 
-- **Add multiple apps.** The left sidebar lists every app you have added, each with a status dot (green
-  while running). Use **+ Add app** to create more.
-- **Tabs.** The main area now has a **Setup** tab (configure the selected app in 4 steps) and a
-  **Running** tab (all apps with their display and devices, and per-app Start/Stop).
-- **Each app is independent.** Every app gets its own target display and its own devices, and is locked to
-  its own screen. Start and stop them individually.
-- **A device belongs to one app.** A mouse, keyboard or controller can be assigned to only one app at a
-  time - switching it ON for one app automatically switches it OFF for all others, so input never leaks
-  into the wrong window.
-- **Delete an app.** Press **Remove** at the top of the Setup tab, or **right-click** the app's row in the
-  sidebar and choose *Remove app*. Apps must be stopped before they can be removed.
+- **Assign audio output devices.** Each app now has an "Audio output(s)" section listing every connected
+  output device (speakers, headphones, virtual cables). Tick one or more and that app's sound is routed to
+  them. Leave them all OFF to keep normal system audio.
+  - *Route-only:* the app's audio is sent to the chosen device(s); other apps are not blocked from the
+    physical device (Windows cannot do that without a custom audio driver, and SplitPlay does not pretend
+    to). Uses WASAPI process loopback, so **Windows 10 2004 or newer** is required. On older builds audio
+    is simply left untouched.
+
+- **Assign several displays to one app.**
+  - **One display selected** → the window is locked to it and cannot be moved off it.
+  - **Several displays selected** → the window may be moved between those screens, but never onto a screen
+    you did not assign.
+
+- **Automatic cleanup when an app exits.** SplitPlay watches each target process. The moment it is closed,
+  killed from the taskbar, or crashes, SplitPlay releases the assigned devices and stops audio routing.
+  Your mouse and keyboard are never left swallowed system-wide. Setups remain until you remove them.
+
+- **Nicer README** with a clear explanation of what SplitPlay is, who it is for, and how to use it.
 
 ## Everything from before
 
-- Keyboard, mouse and controller rows light up green when you use them, so you know which device is which.
-- Assigned devices are bound to the app and no longer leak input to other windows.
-- App windows are moved to, and kept locked on, their assigned display.
+- Add several apps at once — each with its own display, devices and audio, running side by side.
+- A device (mouse / keyboard / controller) belongs to only one app at a time.
+- Rows light up green when you use a device so you can tell which is which.
+- App windows stay on their assigned display.
+- Remove an app with the **Remove** button or right-click in the sidebar.
 
 ## Quick start
 
 1. Plug in your controller (Xbox / XInput, or a DirectInput pad).
 2. Make sure your second screen is **extended** (not mirrored).
 3. Unzip and run `SplitPlay.exe`.
-4. Press **+ Add app**, choose the app/game, the display, and assign devices, then **Start this app**.
+4. Press **+ Add app**, choose the app/game, the display(s), the audio output(s), assign devices, then
+   **Start this app**.
 5. Add more apps if you like, then open the **Running** tab to manage them.
 
 ## Files

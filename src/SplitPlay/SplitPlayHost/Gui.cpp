@@ -318,18 +318,42 @@ bool StartInstance(int id)
     trackedInstanceHandles.push_back(instanceHandle);
     cfg->instanceHandle = instanceHandle;
 
-    // Window placement on the chosen monitor
+    // Window placement across the assigned monitors.
+    // One monitor  -> lock the window to it.
+    // Two or more -> use their combined bounds and let the window move inside them.
     bool setWindowPos = false;
+    bool lockWindow = false;
     int wx = 0, wy = 0, ww = 0, wh = 0;
 
-    if (cfg->moveWindowToDisplay && cfg->selectedMonitorIndex >= 0 && cfg->selectedMonitorIndex < (int)state.monitors.size())
+    if (cfg->moveWindowToDisplay && !state.monitors.empty())
     {
-        const auto& monitor = state.monitors[cfg->selectedMonitorIndex];
-        setWindowPos = true;
-        wx = monitor.x;
-        wy = monitor.y;
-        ww = monitor.width;
-        wh = monitor.height;
+        int minX = INT_MAX, minY = INT_MAX, maxX = INT_MIN, maxY = INT_MIN;
+        int assignedCount = 0;
+
+        for (int i = 0; i < (int)state.monitors.size() && i < (int)cfg->monitorEnabled.size(); ++i)
+        {
+            if (!cfg->monitorEnabled[i])
+                continue;
+
+            const auto& monitor = state.monitors[i];
+            minX = min(minX, monitor.x);
+            minY = min(minY, monitor.y);
+            maxX = max(maxX, monitor.x + monitor.width);
+            maxY = max(maxY, monitor.y + monitor.height);
+            ++assignedCount;
+        }
+
+        if (assignedCount > 0)
+        {
+            setWindowPos = true;
+            wx = minX;
+            wy = minY;
+            ww = maxX - minX;
+            wh = maxY - minY;
+
+            // A single monitor means "stay exactly here"; several means "stay within these"
+            lockWindow = (assignedCount == 1);
+        }
     }
 
     ConfigureInstance(instanceHandle, instance, profile, 1, setWindowPos, wx, wy, ww, wh);
@@ -346,14 +370,21 @@ bool StartInstance(int id)
         isInputCurrentlyLocked = true;
     }
 
-    // Remember the window target so we can keep it locked to the display
+    // Remember the window target so we can keep the app on its display(s)
     cfg->windowLockEnabled = setWindowPos;
+    cfg->lockWindowStrict = lockWindow;
     cfg->lockX = wx;
     cfg->lockY = wy;
     cfg->lockWidth = ww;
     cfg->lockHeight = wh;
     cfg->targetHwnd = nullptr;
     cfg->targetPid = instance.runtime ? instance.pid : pid;
+
+    // Watch the target process so we can release devices the moment it exits
+    cfg->targetProcessHandle = OpenProcess(SYNCHRONIZE, FALSE, cfg->targetPid);
+
+    // Route this app's audio to the chosen output device(s)
+    StartInstanceAudio(cfg->id);
 
     instance.hasBeenInjected = true;
 
@@ -425,18 +456,66 @@ static void ApplyWindowLock()
         const int targetW = cfg.lockWidth;
         const int targetH = cfg.lockHeight;
 
-        const bool offTarget =
-            current.left != cfg.lockX ||
-            current.top != cfg.lockY ||
-            (current.right - current.left) != targetW ||
-            (current.bottom - current.top) != targetH;
-
-        if (offTarget)
+        if (cfg.lockWindowStrict)
         {
-            SetWindowPos(cfg.targetHwnd, nullptr, cfg.lockX, cfg.lockY, targetW, targetH,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
+            // One monitor assigned: the window must sit exactly on it.
+            const bool offTarget =
+                current.left != cfg.lockX ||
+                current.top != cfg.lockY ||
+                (current.right - current.left) != targetW ||
+                (current.bottom - current.top) != targetH;
+
+            if (offTarget)
+            {
+                SetWindowPos(cfg.targetHwnd, nullptr, cfg.lockX, cfg.lockY, targetW, targetH,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        }
+        else
+        {
+            // Several monitors assigned: the window may be moved/resized by the app, but
+            // it must stay inside the combined area so it never lands on a screen you did
+            // not assign. We keep the app's own size and only nudge position back inside.
+            const int winW = current.right - current.left;
+            const int winH = current.bottom - current.top;
+
+            int newX = current.left;
+            int newY = current.top;
+
+            if (current.left < cfg.lockX)                 newX = cfg.lockX;
+            if (current.top < cfg.lockY)                  newY = cfg.lockY;
+            if (current.right > cfg.lockX + targetW)      newX = cfg.lockX + targetW - winW;
+            if (current.bottom > cfg.lockY + targetH)     newY = cfg.lockY + targetH - winH;
+
+            if (newX != current.left || newY != current.top)
+            {
+                SetWindowPos(cfg.targetHwnd, nullptr, newX, newY, 0, 0,
+                             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+            }
         }
     }
+}
+
+// Watches running instances and stops any whose target process has exited or crashed.
+// This is what releases the bound devices automatically when an app is closed from the
+// taskbar, killed, or crashes, so input is not left swallowed system-wide.
+static void CheckForExitedProcesses()
+{
+    auto& state = GetAppState();
+
+    std::vector<int> exited;
+
+    for (const auto& cfg : state.instances)
+    {
+        if (!cfg.hasInjected || cfg.targetProcessHandle == nullptr)
+            continue;
+
+        if (WaitForSingleObject(cfg.targetProcessHandle, 0) == WAIT_OBJECT_0)
+            exited.push_back(cfg.id);
+    }
+
+    for (int id : exited)
+        StopInstance(id);
 }
 
 void StopInstance(int id)
@@ -448,12 +527,21 @@ void StopInstance(int id)
         if (cfg.id != id)
             continue;
 
+        StopInstanceAudio(cfg.id);
+
         cfg.hasInjected = false;
         cfg.running = false;
         cfg.instanceHandle = 0;
         cfg.windowLockEnabled = false;
         cfg.targetHwnd = nullptr;
         cfg.targetPid = 0;
+
+        if (cfg.targetProcessHandle != nullptr)
+        {
+            CloseHandle((HANDLE)cfg.targetProcessHandle);
+            cfg.targetProcessHandle = nullptr;
+        }
+
         cfg.statusMessage = "Stopped. Start again any time.";
         break;
     }
@@ -495,6 +583,50 @@ void RebindAllInputDevices()
             if (cfg.keyboardEnabled[i])
                 BindInputDevice(state.keyboards[i].handle, true);
         }
+    }
+}
+
+void StartInstanceAudio(int id)
+{
+    auto& state = GetAppState();
+
+    for (const auto& cfg : state.instances)
+    {
+        if (cfg.id != id)
+            continue;
+
+        if (!cfg.routeAudio || cfg.targetPid == 0)
+            return;
+
+        std::vector<std::wstring> chosen;
+
+        for (int i = 0; i < (int)cfg.audioEnabled.size() && i < (int)state.audioOutputs.size(); ++i)
+        {
+            if (cfg.audioEnabled[i])
+                chosen.push_back(state.audioOutputs[i].id);
+        }
+
+        if (chosen.empty())
+            return;
+
+        StartAudioRouting(cfg.targetPid, chosen);
+        return;
+    }
+}
+
+void StopInstanceAudio(int id)
+{
+    auto& state = GetAppState();
+
+    for (const auto& cfg : state.instances)
+    {
+        if (cfg.id != id)
+            continue;
+
+        if (cfg.targetPid != 0)
+            StopAudioRouting(cfg.targetPid);
+
+        return;
     }
 }
 
@@ -614,10 +746,50 @@ static std::string DescribeDisplay(const InstanceConfig& cfg)
     if (!cfg.moveWindowToDisplay)
         return "Stays where it opens";
 
-    if (cfg.selectedMonitorIndex >= 0 && cfg.selectedMonitorIndex < (int)state.monitors.size())
-        return MonitorLabel(state.monitors[cfg.selectedMonitorIndex]);
+    std::string out;
+    int count = 0;
 
-    return "Display";
+    for (int i = 0; i < (int)cfg.monitorEnabled.size() && i < (int)state.monitors.size(); ++i)
+    {
+        if (!cfg.monitorEnabled[i])
+            continue;
+
+        if (count > 0)
+            out += " + ";
+
+        out += MonitorLabel(state.monitors[i]);
+        ++count;
+    }
+
+    if (count == 0)
+        return "Display";
+
+    if (count > 1)
+        out += "  (window may move between them)";
+
+    return out;
+}
+
+static std::string DescribeAudio(const InstanceConfig& cfg)
+{
+    auto& state = GetAppState();
+    std::string out;
+
+    for (int i = 0; i < (int)cfg.audioEnabled.size() && i < (int)state.audioOutputs.size(); ++i)
+    {
+        if (!cfg.audioEnabled[i])
+            continue;
+
+        if (!out.empty())
+            out += " + ";
+
+        out += utf8_encode(state.audioOutputs[i].name);
+    }
+
+    if (out.empty())
+        return "Normal system audio";
+
+    return out;
 }
 
 // ---------------- Configure pane (per selected instance) ----------------
@@ -770,8 +942,8 @@ static void RenderConfigurePane()
     ImGui::Spacing();
 
     // ===== Step 2: Display =====
-    if (CardBegin("##card_display", ImVec2(fullWidth, 0), "2. Choose the display",
-                  "Where should this app's window appear?"))
+    if (CardBegin("##card_display", ImVec2(fullWidth, 0), "2. Choose the display(s)",
+                  "Pick one display to lock the window there, or several to let it move between them."))
     {
         if (state.monitors.empty())
         {
@@ -784,16 +956,62 @@ static void RenderConfigurePane()
                 const auto& monitor = state.monitors[i];
                 auto primary = MonitorLabel(monitor);
                 std::wstring secondary = monitor.isPrimary ? L"Primary display" : L"Secondary display";
-                const bool selected = cfg.selectedMonitorIndex == i;
+                const bool active = i < (int)cfg.monitorEnabled.size() && cfg.monitorEnabled[i];
 
                 if (DeviceRow(("mon" + std::to_string(i)).c_str(), DeviceIcon::Display,
-                              primary, utf8_encode(secondary), true, selected))
-                    cfg.selectedMonitorIndex = i;
+                              primary, utf8_encode(secondary), active, active))
+                    ToggleMonitor(cfg.id, i);
             }
+
+            const int count = CountAssignedMonitors(cfg);
+            ImGui::PushFont(g_FontSmall);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.62f, 0.70f, 1.0f));
+            if (count <= 1)
+                ImGui::TextWrapped("One display selected: the window will be locked to it and cannot be moved.");
+            else
+                ImGui::TextWrapped("%d displays selected: the window may be moved between them, but not onto any other screen.", count);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
         }
 
         ImGui::Spacing();
-        Toggle("Move the window to this display", &cfg.moveWindowToDisplay);
+        Toggle("Move the window to the selected display(s)", &cfg.moveWindowToDisplay);
+    }
+    CardEnd();
+
+    ImGui::Spacing();
+
+    // ===== Step 2b: Audio output(s) =====
+    if (CardBegin("##card_audio", ImVec2(fullWidth, 0), "2b. Choose audio output(s)",
+                  "Send this app's sound to the output device(s) you pick. Leave all OFF to keep normal system audio."))
+    {
+        if (state.audioOutputs.empty())
+        {
+            ImGui::TextDisabled("No audio output devices detected");
+        }
+        else
+        {
+            for (int i = 0; i < (int)state.audioOutputs.size(); ++i)
+            {
+                const auto& out = state.audioOutputs[i];
+                const bool active = i < (int)cfg.audioEnabled.size() && cfg.audioEnabled[i];
+
+                std::wstring secondary = out.isDefault ? L"Default output" : L"Audio output";
+                if (!out.description.empty() && out.description != out.name)
+                    secondary += L" - " + out.description;
+
+                if (DeviceRow(("audio" + std::to_string(i)).c_str(), DeviceIcon::Speaker,
+                              utf8_encode(out.name), utf8_encode(secondary), active, active))
+                    ToggleAudioOutput(cfg.id, i);
+            }
+
+            ImGui::PushFont(g_FontSmall);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.62f, 0.70f, 1.0f));
+            ImGui::TextWrapped("Route-only: the app's sound is sent to the chosen device(s). Other apps are not blocked "
+                               "from those devices (Windows has no way to do that without a custom audio driver).");
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+        }
     }
     CardEnd();
 
@@ -1001,6 +1219,7 @@ static void RenderRunningPane()
 
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
             ImGui::Text("Display: %s", DescribeDisplay(cfg).c_str());
+            ImGui::Text("Audio: %s", DescribeAudio(cfg).c_str());
             ImGui::Text("Devices: %s", DescribeDevices(cfg).c_str());
             ImGui::PopStyleColor();
 
@@ -1057,6 +1276,9 @@ void RenderSimpleMode()
 
     // Keep every app window locked to its assigned display
     ApplyWindowLock();
+
+    // Release devices/audio and stop instances whose target process has exited or crashed
+    CheckForExitedProcesses();
 
     // Keep process list fresh-ish
     static int frameCounter = 0;

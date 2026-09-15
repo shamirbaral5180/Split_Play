@@ -34,7 +34,6 @@ int AddInstance()
 	InstanceConfig instance{};
 	instance.id = state.nextInstanceId++;
 	instance.name = L"New app";
-	instance.selectedMonitorIndex = 0;
 
 	state.instances.push_back(std::move(instance));
 	state.selectedInstanceId = state.instances.back().id;
@@ -70,12 +69,10 @@ void RefreshSimpleModeDevices()
 	state.controllers = EnumerateControllers();
 	state.mice = EnumerateInputDevices(false);
 	state.keyboards = EnumerateInputDevices(true);
+	state.audioOutputs = EnumerateAudioOutputs();
 
 	for (auto& instance : state.instances)
 	{
-		if (instance.selectedMonitorIndex < 0 || instance.selectedMonitorIndex >= (int)state.monitors.size())
-			instance.selectedMonitorIndex = 0;
-
 		if (instance.selectedControllerIndex < 0 || instance.selectedControllerIndex >= (int)state.controllers.size())
 			instance.selectedControllerIndex = 0;
 
@@ -85,9 +82,22 @@ void RefreshSimpleModeDevices()
 		if (instance.selectedKeyboardIndex < 0 || instance.selectedKeyboardIndex >= (int)state.keyboards.size())
 			instance.selectedKeyboardIndex = 0;
 
+		// Monitors: keep the previous choice, default the first monitor ON when nothing is set
+		const size_t monitorCount = state.monitors.size();
+		instance.monitorEnabled.resize(monitorCount, false);
+		{
+			bool anyMonitor = false;
+			for (bool m : instance.monitorEnabled) anyMonitor = anyMonitor || m;
+			if (!anyMonitor && monitorCount > 0)
+				instance.monitorEnabled[0] = true;
+		}
+
 		ResizeEnabled(instance.controllerEnabled, state.controllers.size(), false);
 		ResizeEnabled(instance.mouseEnabled, state.mice.size(), false);
 		ResizeEnabled(instance.keyboardEnabled, state.keyboards.size(), false);
+
+		// Audio outputs default to none selected (routeAudio stays off until chosen)
+		instance.audioEnabled.resize(state.audioOutputs.size(), false);
 	}
 }
 
@@ -215,6 +225,77 @@ void AssignKeyboard(int instanceId, int index, bool enabled)
 			}
 			break;
 		}
+	}
+}
+
+void ToggleMonitor(int instanceId, int index)
+{
+	auto& state = GetAppState();
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.id != instanceId)
+			continue;
+
+		if (index < 0 || index >= (int)instance.monitorEnabled.size())
+			break;
+
+		// Never allow the app to have no monitor: clicking the last one keeps it on
+		const bool wasOn = instance.monitorEnabled[index];
+
+		if (wasOn && CountAssignedMonitors(instance) <= 1)
+			break;
+
+		instance.monitorEnabled[index] = !wasOn;
+		break;
+	}
+}
+
+bool IsMonitorUsedByOther(int instanceId, int index)
+{
+	auto& state = GetAppState();
+
+	for (const auto& instance : state.instances)
+	{
+		if (instance.id == instanceId)
+			continue;
+
+		if (index >= 0 && index < (int)instance.monitorEnabled.size() && instance.monitorEnabled[index])
+			return true;
+	}
+
+	return false;
+}
+
+int CountAssignedMonitors(const InstanceConfig& cfg)
+{
+	int count = 0;
+
+	for (bool m : cfg.monitorEnabled)
+		count += m ? 1 : 0;
+
+	return count;
+}
+
+void ToggleAudioOutput(int instanceId, int index)
+{
+	auto& state = GetAppState();
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.id != instanceId)
+			continue;
+
+		if (index < 0 || index >= (int)instance.audioEnabled.size())
+			break;
+
+		instance.audioEnabled[index] = !instance.audioEnabled[index];
+
+		// routeAudio reflects whether any output is selected
+		bool any = false;
+		for (bool a : instance.audioEnabled) any = any || a;
+		instance.routeAudio = any;
+		break;
 	}
 }
 

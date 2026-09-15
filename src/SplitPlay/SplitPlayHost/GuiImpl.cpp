@@ -10,6 +10,7 @@
 #include "FontData.h"
 #include "Gui.h"
 #include "UiTheme.h"
+#include "AudioUtils.h"
 
 HGLRC   g_GLRenderContext;
 HDC     g_HDCDeviceContext;
@@ -239,6 +240,7 @@ int SplitPlayHost::ShowGuiImpl()
     }
 
     // Cleanup
+    SplitPlayHost::StopAllAudioRouting();
     ImGui_ImplOpenGL3_Shutdown();
     wglDeleteContext(g_GLRenderContext);
     ImGui::DestroyContext();
