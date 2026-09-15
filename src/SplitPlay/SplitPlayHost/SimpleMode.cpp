@@ -8,48 +8,214 @@ static void ResizeEnabled(std::vector<bool>& flags, size_t size, bool defaultVal
 	flags.resize(size, defaultValue);
 }
 
-SimpleModeState& GetSimpleModeState()
+AppState& GetAppState()
 {
-	static SimpleModeState state{};
+	static AppState state{};
 	return state;
+}
+
+InstanceConfig* GetSelectedInstance()
+{
+	auto& state = GetAppState();
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.id == state.selectedInstanceId)
+			return &instance;
+	}
+
+	return nullptr;
+}
+
+int AddInstance()
+{
+	auto& state = GetAppState();
+
+	InstanceConfig instance{};
+	instance.id = state.nextInstanceId++;
+	instance.name = L"New app";
+	instance.selectedMonitorIndex = 0;
+
+	state.instances.push_back(std::move(instance));
+	state.selectedInstanceId = state.instances.back().id;
+
+	// Keep the new instance's device lists the right size
+	RefreshSimpleModeDevices();
+
+	return state.instances.back().id;
+}
+
+void RemoveInstance(int id)
+{
+	auto& state = GetAppState();
+
+	for (auto it = state.instances.begin(); it != state.instances.end(); ++it)
+	{
+		if (it->id == id)
+		{
+			state.instances.erase(it);
+			break;
+		}
+	}
+
+	if (state.selectedInstanceId == id)
+		state.selectedInstanceId = state.instances.empty() ? -1 : state.instances.front().id;
 }
 
 void RefreshSimpleModeDevices()
 {
-	auto& state = GetSimpleModeState();
+	auto& state = GetAppState();
 
 	state.monitors = EnumerateMonitors();
-	if (state.selectedMonitorIndex < 0 || state.selectedMonitorIndex >= (int)state.monitors.size())
-		state.selectedMonitorIndex = 0;
-
 	state.controllers = EnumerateControllers();
-	if (state.selectedControllerIndex < 0 || state.selectedControllerIndex >= (int)state.controllers.size())
-		state.selectedControllerIndex = 0;
-	ResizeEnabled(state.controllerEnabled, state.controllers.size(), false);
-	// Default: enable the first controller if the user hasn't enabled any yet
-	if (!state.controllers.empty())
-	{
-		bool anyEnabled = false;
-		for (bool e : state.controllerEnabled) anyEnabled = anyEnabled || e;
-		if (!anyEnabled) state.controllerEnabled[0] = true;
-	}
-
 	state.mice = EnumerateInputDevices(false);
-	if (state.selectedMouseIndex < 0 || state.selectedMouseIndex >= (int)state.mice.size())
-		state.selectedMouseIndex = 0;
-	ResizeEnabled(state.mouseEnabled, state.mice.size(), false);
-
 	state.keyboards = EnumerateInputDevices(true);
-	if (state.selectedKeyboardIndex < 0 || state.selectedKeyboardIndex >= (int)state.keyboards.size())
-		state.selectedKeyboardIndex = 0;
-	ResizeEnabled(state.keyboardEnabled, state.keyboards.size(), false);
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.selectedMonitorIndex < 0 || instance.selectedMonitorIndex >= (int)state.monitors.size())
+			instance.selectedMonitorIndex = 0;
+
+		if (instance.selectedControllerIndex < 0 || instance.selectedControllerIndex >= (int)state.controllers.size())
+			instance.selectedControllerIndex = 0;
+
+		if (instance.selectedMouseIndex < 0 || instance.selectedMouseIndex >= (int)state.mice.size())
+			instance.selectedMouseIndex = 0;
+
+		if (instance.selectedKeyboardIndex < 0 || instance.selectedKeyboardIndex >= (int)state.keyboards.size())
+			instance.selectedKeyboardIndex = 0;
+
+		ResizeEnabled(instance.controllerEnabled, state.controllers.size(), false);
+		ResizeEnabled(instance.mouseEnabled, state.mice.size(), false);
+		ResizeEnabled(instance.keyboardEnabled, state.keyboards.size(), false);
+	}
 }
 
 void RefreshSimpleModeProcesses()
 {
-	auto& state = GetSimpleModeState();
+	auto& state = GetAppState();
 	state.runningGames = EnumerateWindowedProcesses();
 }
 
+bool IsMouseHandleAssigned(unsigned int handle)
+{
+	auto& state = GetAppState();
+
+	for (const auto& instance : state.instances)
+	{
+		for (int i = 0; i < (int)instance.mouseEnabled.size() && i < (int)state.mice.size(); ++i)
+		{
+			if (instance.mouseEnabled[i] && state.mice[i].handle == handle)
+				return true;
+		}
+	}
+
+	return false;
 }
 
+bool IsKeyboardHandleAssigned(unsigned int handle)
+{
+	auto& state = GetAppState();
+
+	for (const auto& instance : state.instances)
+	{
+		for (int i = 0; i < (int)instance.keyboardEnabled.size() && i < (int)state.keyboards.size(); ++i)
+		{
+			if (instance.keyboardEnabled[i] && state.keyboards[i].handle == handle)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+bool IsControllerIndexAssigned(unsigned int controllerIndex)
+{
+	auto& state = GetAppState();
+
+	for (const auto& instance : state.instances)
+	{
+		for (int i = 0; i < (int)instance.controllerEnabled.size() && i < (int)state.controllers.size(); ++i)
+		{
+			if (instance.controllerEnabled[i] && state.controllers[i].index == controllerIndex)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+void AssignController(int instanceId, int index, bool enabled)
+{
+	auto& state = GetAppState();
+
+	// Turn the controller off for every instance first (one controller, one app)
+	for (auto& instance : state.instances)
+	{
+		if (index >= 0 && index < (int)instance.controllerEnabled.size())
+			instance.controllerEnabled[index] = false;
+	}
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.id == instanceId)
+		{
+			if (enabled && index >= 0 && index < (int)instance.controllerEnabled.size())
+			{
+				instance.selectedControllerIndex = index;
+				instance.controllerEnabled[index] = true;
+			}
+			break;
+		}
+	}
+}
+
+void AssignMouse(int instanceId, int index, bool enabled)
+{
+	auto& state = GetAppState();
+
+	for (auto& instance : state.instances)
+	{
+		if (index >= 0 && index < (int)instance.mouseEnabled.size())
+			instance.mouseEnabled[index] = false;
+	}
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.id == instanceId)
+		{
+			if (enabled && index >= 0 && index < (int)instance.mouseEnabled.size())
+			{
+				instance.selectedMouseIndex = index;
+				instance.mouseEnabled[index] = true;
+			}
+			break;
+		}
+	}
+}
+
+void AssignKeyboard(int instanceId, int index, bool enabled)
+{
+	auto& state = GetAppState();
+
+	for (auto& instance : state.instances)
+	{
+		if (index >= 0 && index < (int)instance.keyboardEnabled.size())
+			instance.keyboardEnabled[index] = false;
+	}
+
+	for (auto& instance : state.instances)
+	{
+		if (instance.id == instanceId)
+		{
+			if (enabled && index >= 0 && index < (int)instance.keyboardEnabled.size())
+			{
+				instance.selectedKeyboardIndex = index;
+				instance.keyboardEnabled[index] = true;
+			}
+			break;
+		}
+	}
+}
+
+}

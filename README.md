@@ -6,6 +6,9 @@ devices you choose, while your keyboard and mouse stay on the main screen and ke
 SplitPlay is a portable, no-install tool. Unzip it, run `SplitPlay.exe`, pick your app, your display and
 your devices, and press **Start**.
 
+You can add **several apps at once**. Each one gets its own display and its own devices, and they all run
+side by side. The list of added apps lives in the left sidebar; a status dot shows which are running.
+
 ## How it works
 
 SplitPlay injects a small set of hooks into the target process. Those hooks:
@@ -22,7 +25,7 @@ This is built on top of the open-source SplitPlay hooking library (originally Pr
 1. Plug in your controller (Xbox / XInput, or a DirectInput pad such as a Fantech Shooter).
 2. Make sure your second screen is connected and extended (not mirrored).
 3. Run `SplitPlay.exe`.
-4. In the app:
+4. Use **+ Add app** in the left sidebar to create an app, then in the **Setup** tab:
    1. **Choose the app or game** - browse to an `.exe`, or pick it from the list of running apps
       (search by name or window title).
    2. **Choose the display** - select the screen the window should open on.
@@ -30,24 +33,35 @@ This is built on top of the open-source SplitPlay hooking library (originally Pr
       - **Controller** - pick the pad the app should use.
       - **Mouse** / **Keyboard** - optional. Leave them OFF to keep them on the desktop.
       Devices show their real product name, an icon, and an ON/OFF badge.
-   4. Press **Start**.
-5. While the app runs, use the rest of Windows normally - only the devices you switched ON control it.
+   4. Press **Start this app**.
+5. Repeat **+ Add app** for another app if you want. Open the **Running** tab to see every app, its
+   display and its devices, and to start/stop each one.
+6. While apps run, use the rest of Windows normally - only the devices you switched ON control them.
+
+### Add as many apps as you like
+
+Each app is a separate entry in the left sidebar. Every entry has its own display and its own devices, so
+you can run two (or more) apps at once on different screens. The dot next to a name is green while that app
+is running.
+
+To delete an app, select it and press **Remove** at the top of the Setup tab, or **right-click** its row in
+the sidebar and choose *Remove app*. Apps must be stopped before they can be removed.
 
 ### Find out which device is which
 
 Move a mouse, press a key, or move your controller, and the matching row **lights up green** so you know
 exactly which physical device that entry refers to before you turn it on or off.
 
-### Devices belong to the app
+### A device belongs to one app
 
-When you switch a mouse or keyboard ON for an app, SplitPlay **binds that device to the app**: its clicks
-and key presses go only to the app and no longer leak to whatever else is on screen. Everything you left
-OFF keeps controlling Windows normally.
+A mouse, keyboard or controller can be assigned to only **one** app at a time. Switching it ON for one app
+automatically switches it OFF for every other app, so input never leaks into the wrong window. Everything
+you left OFF keeps controlling Windows normally.
 
 ### The window stays on its display
 
 Once you assign a display, SplitPlay moves the app window there and **keeps it locked** to that display
-and size. If the app tries to move or resize itself, it is put back.
+and size. If the app tries to move or resize itself, it is put back. Each app is locked to its own display.
 
 ## Controls
 

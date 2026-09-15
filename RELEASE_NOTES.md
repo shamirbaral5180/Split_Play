@@ -1,26 +1,35 @@
-# SplitPlay 1.0.0
+# SplitPlay 1.1.0
 
-Send an app or game to a **second screen** and control it with the devices you choose, while your
-keyboard and mouse keep working on the main screen.
+Multi-app support. You can now add several apps at once, each with its own display and its own devices,
+running side by side.
 
-## Features
+## What's new
 
-- **Modern dashboard UI** - clean dark theme, real system font, cards and toggles instead of the old 1990s look.
-- **Works with any app, not just games** - attach to any running window, or launch any `.exe`.
-- **Device assignment** - turn each controller / mouse / keyboard ON or OFF for the target app.
-  Devices show their real product name and an icon.
-- **Find which device is which** - move a mouse or press a key and that row **lights up green**,
-  so you can tell exactly which physical device an entry refers to before enabling it.
-- **Second-screen placement** - pick the display and SplitPlay moves/resizes the window onto it.
-- **Keeps the app alive while unfocused** - the app keeps running and receiving input while you use Windows.
-- **Portable** - no installer. Unzip and run `SplitPlay.exe`.
+- **Add multiple apps.** The left sidebar lists every app you have added, each with a status dot (green
+  while running). Use **+ Add app** to create more.
+- **Tabs.** The main area now has a **Setup** tab (configure the selected app in 4 steps) and a
+  **Running** tab (all apps with their display and devices, and per-app Start/Stop).
+- **Each app is independent.** Every app gets its own target display and its own devices, and is locked to
+  its own screen. Start and stop them individually.
+- **A device belongs to one app.** A mouse, keyboard or controller can be assigned to only one app at a
+  time - switching it ON for one app automatically switches it OFF for all others, so input never leaks
+  into the wrong window.
+- **Delete an app.** Press **Remove** at the top of the Setup tab, or **right-click** the app's row in the
+  sidebar and choose *Remove app*. Apps must be stopped before they can be removed.
+
+## Everything from before
+
+- Keyboard, mouse and controller rows light up green when you use them, so you know which device is which.
+- Assigned devices are bound to the app and no longer leak input to other windows.
+- App windows are moved to, and kept locked on, their assigned display.
 
 ## Quick start
 
-1. Plug in your controller (Xbox / XInput, or a DirectInput pad such as a Fantech Shooter).
-2. Make sure your second screen is connected and **extended** (not mirrored).
-3. Unzip `SplitPlay.zip` and run `SplitPlay.exe`.
-4. Choose the app or game, choose the display, assign devices, press **Start**.
+1. Plug in your controller (Xbox / XInput, or a DirectInput pad).
+2. Make sure your second screen is **extended** (not mirrored).
+3. Unzip and run `SplitPlay.exe`.
+4. Press **+ Add app**, choose the app/game, the display, and assign devices, then **Start this app**.
+5. Add more apps if you like, then open the **Running** tab to manage them.
 
 ## Files
 
@@ -36,10 +45,4 @@ SplitPlay/
   README.md
 ```
 
-Keep all files together in the folder. Runs on 64-bit Windows 10/11; 32-bit target apps are supported too.
-
-## Notes
-
-- Run fullscreen games in **windowed** or **borderless** mode - exclusive fullscreen can ignore being moved.
-- DirectInput controllers use a Dinput-to-Xinput translation (both triggers cannot be analog at once).
-- Built on the open-source ProtoInput hooking library (MIT).
+Keep all files together. Runs on 64-bit Windows 10/11; 32-bit target apps supported too.

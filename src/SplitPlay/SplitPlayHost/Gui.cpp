@@ -1,6 +1,7 @@
 #include "Gui.h"
 #include <imgui.h>
 #include <algorithm>
+#include <cstring>
 #include <imgui_internal.h>
 #include <string>
 #include <vector>
@@ -190,6 +191,10 @@ void RenderImgui()
         firstTimeSetup = false;
         FirstTimeSetup();
         RefreshSimpleModeDevices();
+
+        // Start with one empty app ready to configure
+        if (GetAppState().instances.empty())
+            AddInstance();
     }
 
     const auto displaySize = ImGui::GetIO().DisplaySize;
@@ -208,36 +213,55 @@ void RenderImgui()
                      ImGuiWindowFlags_NoBringToFrontOnFocus
     ))
     {
-        ImGui::BeginChild("##simple_scroll", ImVec2(0, 0), false, ImGuiWindowFlags_None);
         RenderSimpleMode();
-        ImGui::EndChild();
     }
     ImGui::End();
 }
 
-bool LaunchSimple()
+// Builds the Instance for a config and injects, wiring up hooks and devices.
+bool StartInstance(int id)
 {
-    auto& state = GetSimpleModeState();
+    auto& state = GetAppState();
 
-    if (state.hasInjected)
+    InstanceConfig* cfg = nullptr;
+    for (auto& instance : state.instances)
     {
-        state.statusMessage = "Already running. Stop it first.";
+        if (instance.id == id)
+        {
+            cfg = &instance;
+            break;
+        }
+    }
+
+    if (cfg == nullptr)
+        return false;
+
+    if (cfg->hasInjected)
+    {
+        cfg->statusMessage = "Already running. Stop it first.";
+        return false;
+    }
+
+    const bool canStart = cfg->launchNewInstance ? !cfg->gameFilepath.empty() : cfg->runningPid != 0;
+    if (!canStart)
+    {
+        cfg->statusMessage = "Choose an app or game first.";
         return false;
     }
 
     // Build the instance
-    Instance instance = state.launchNewInstance
-        ? Instance(state.gameFilepath, std::filesystem::path(state.gameFilepath).filename().wstring())
-        : Instance(state.runningPid, state.runningProcessName);
+    Instance instance = cfg->launchNewInstance
+        ? Instance(cfg->gameFilepath, std::filesystem::path(cfg->gameFilepath).filename().wstring())
+        : Instance(cfg->runningPid, cfg->runningProcessName);
 
     // Profile: second-screen controller preset, then apply the user's device assignments
     auto profile = Profile::MakeSecondScreenControllerProfile();
 
-    if (state.selectedControllerIndex >= 0 && state.selectedControllerIndex < (int)state.controllers.size() &&
-        state.selectedControllerIndex < (int)state.controllerEnabled.size() &&
-        state.controllerEnabled[state.selectedControllerIndex])
+    if (cfg->selectedControllerIndex >= 0 && cfg->selectedControllerIndex < (int)state.controllers.size() &&
+        cfg->selectedControllerIndex < (int)cfg->controllerEnabled.size() &&
+        cfg->controllerEnabled[cfg->selectedControllerIndex])
     {
-        const auto& controller = state.controllers[state.selectedControllerIndex];
+        const auto& controller = state.controllers[cfg->selectedControllerIndex];
         instance.controllerIndex = controller.index;
         profile.dinputToXinputRedirection = controller.requiresDinputRedirection;
         profile.useOpenXinput = controller.requiresOpenXinput;
@@ -248,29 +272,29 @@ bool LaunchSimple()
     }
 
     // Mouse / keyboard assigned to the game (optional)
-    if (state.selectedMouseIndex >= 0 && state.selectedMouseIndex < (int)state.mice.size() &&
-        state.selectedMouseIndex < (int)state.mouseEnabled.size() &&
-        state.mouseEnabled[state.selectedMouseIndex])
+    if (cfg->selectedMouseIndex >= 0 && cfg->selectedMouseIndex < (int)state.mice.size() &&
+        cfg->selectedMouseIndex < (int)cfg->mouseEnabled.size() &&
+        cfg->mouseEnabled[cfg->selectedMouseIndex])
     {
-        instance.mouseHandle = state.mice[state.selectedMouseIndex].handle;
+        instance.mouseHandle = state.mice[cfg->selectedMouseIndex].handle;
     }
     else
     {
         instance.mouseHandle = -1;
     }
 
-    if (state.selectedKeyboardIndex >= 0 && state.selectedKeyboardIndex < (int)state.keyboards.size() &&
-        state.selectedKeyboardIndex < (int)state.keyboardEnabled.size() &&
-        state.keyboardEnabled[state.selectedKeyboardIndex])
+    if (cfg->selectedKeyboardIndex >= 0 && cfg->selectedKeyboardIndex < (int)state.keyboards.size() &&
+        cfg->selectedKeyboardIndex < (int)cfg->keyboardEnabled.size() &&
+        cfg->keyboardEnabled[cfg->selectedKeyboardIndex])
     {
-        instance.keyboardHandle = state.keyboards[state.selectedKeyboardIndex].handle;
+        instance.keyboardHandle = state.keyboards[cfg->selectedKeyboardIndex].handle;
     }
     else
     {
         instance.keyboardHandle = -1;
     }
 
-    profile.drawFakeMouseCursor = state.showFakeCursor;
+    profile.drawFakeMouseCursor = cfg->showFakeCursor;
 
     // Inject
     SplitPlayInstanceHandle instanceHandle = 0;
@@ -287,20 +311,20 @@ bool LaunchSimple()
 
     if (instanceHandle == 0)
     {
-        state.statusMessage = "Injection failed. See console for details.";
+        cfg->statusMessage = "Injection failed. See console for details.";
         return false;
     }
 
     trackedInstanceHandles.push_back(instanceHandle);
-    state.instanceHandle = instanceHandle;
+    cfg->instanceHandle = instanceHandle;
 
     // Window placement on the chosen monitor
     bool setWindowPos = false;
     int wx = 0, wy = 0, ww = 0, wh = 0;
 
-    if (state.moveWindowToDisplay && state.selectedMonitorIndex >= 0 && state.selectedMonitorIndex < (int)state.monitors.size())
+    if (cfg->moveWindowToDisplay && cfg->selectedMonitorIndex >= 0 && cfg->selectedMonitorIndex < (int)state.monitors.size())
     {
-        const auto& monitor = state.monitors[state.selectedMonitorIndex];
+        const auto& monitor = state.monitors[cfg->selectedMonitorIndex];
         setWindowPos = true;
         wx = monitor.x;
         wy = monitor.y;
@@ -310,16 +334,12 @@ bool LaunchSimple()
 
     ConfigureInstance(instanceHandle, instance, profile, 1, setWindowPos, wx, wy, ww, wh);
 
-    SetExternalFreezeFakeInput(instanceHandle, state.freezeInputUntilStart);
+    SetExternalFreezeFakeInput(instanceHandle, cfg->freezeInputUntilStart);
 
-    // Bind the assigned mouse/keyboard so their input cannot reach any other app
-    if (instance.mouseHandle != -1)
-        BindInputDevice((unsigned int)instance.mouseHandle, false);
+    // Bind every device that is currently assigned to any running app
+    RebindAllInputDevices();
 
-    if (instance.keyboardHandle != -1)
-        BindInputDevice((unsigned int)instance.keyboardHandle, true);
-
-    if (state.lockRealInput)
+    if (cfg->lockRealInput && !isInputCurrentlyLocked)
     {
         LockInput(true);
         SuspendExplorer();
@@ -327,19 +347,25 @@ bool LaunchSimple()
     }
 
     // Remember the window target so we can keep it locked to the display
-    state.windowLockEnabled = setWindowPos;
-    state.lockX = wx;
-    state.lockY = wy;
-    state.lockWidth = ww;
-    state.lockHeight = wh;
-    state.targetHwnd = nullptr;
-    state.targetPid = instance.runtime ? instance.pid : pid;
+    cfg->windowLockEnabled = setWindowPos;
+    cfg->lockX = wx;
+    cfg->lockY = wy;
+    cfg->lockWidth = ww;
+    cfg->lockHeight = wh;
+    cfg->targetHwnd = nullptr;
+    cfg->targetPid = instance.runtime ? instance.pid : pid;
 
     instance.hasBeenInjected = true;
 
-    state.hasInjected = true;
-    state.running = true;
-    state.statusMessage = "Running. The app is on the selected display.";
+    cfg->hasInjected = true;
+    cfg->running = true;
+    if (cfg->name == L"New app" || cfg->name.empty())
+    {
+        cfg->name = cfg->launchNewInstance
+            ? std::filesystem::path(cfg->gameFilepath).filename().wstring()
+            : cfg->runningProcessName;
+    }
+    cfg->statusMessage = "Running on the selected display.";
 
     return true;
 }
@@ -373,67 +399,103 @@ static HWND FindMainWindowForPid(unsigned long pid)
     return found;
 }
 
-// Periodically force the target window back onto the chosen display.
-// The SetWindowPos/MoveWindow hooks cover apps that call Windows APIs, but some games
-// reposition by other means, so we also nudge the window directly from the host.
+// Periodically force each running instance's window back onto its chosen display.
 static void ApplyWindowLock()
 {
-    auto& state = GetSimpleModeState();
+    auto& state = GetAppState();
 
-    if (!state.hasInjected || !state.windowLockEnabled)
-        return;
-
-    if (state.targetHwnd == nullptr || !IsWindow(state.targetHwnd))
+    for (auto& cfg : state.instances)
     {
-        unsigned long pid = state.targetPid;
+        if (!cfg.hasInjected || !cfg.windowLockEnabled)
+            continue;
 
-        if (pid != 0)
-            state.targetHwnd = FindMainWindowForPid(pid);
-    }
+        if (cfg.targetHwnd == nullptr || !IsWindow(cfg.targetHwnd))
+        {
+            if (cfg.targetPid != 0)
+                cfg.targetHwnd = FindMainWindowForPid(cfg.targetPid);
+        }
 
-    if (state.targetHwnd == nullptr || !IsWindow(state.targetHwnd))
-        return;
+        if (cfg.targetHwnd == nullptr || !IsWindow(cfg.targetHwnd))
+            continue;
 
-    RECT current{};
-    if (!GetWindowRect(state.targetHwnd, &current))
-        return;
+        RECT current{};
+        if (!GetWindowRect(cfg.targetHwnd, &current))
+            continue;
 
-    const int targetW = state.lockWidth;
-    const int targetH = state.lockHeight;
+        const int targetW = cfg.lockWidth;
+        const int targetH = cfg.lockHeight;
 
-    const bool offTarget =
-        current.left != state.lockX ||
-        current.top != state.lockY ||
-        (current.right - current.left) != targetW ||
-        (current.bottom - current.top) != targetH;
+        const bool offTarget =
+            current.left != cfg.lockX ||
+            current.top != cfg.lockY ||
+            (current.right - current.left) != targetW ||
+            (current.bottom - current.top) != targetH;
 
-    if (offTarget)
-    {
-        SetWindowPos(state.targetHwnd, nullptr, state.lockX, state.lockY, targetW, targetH,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+        if (offTarget)
+        {
+            SetWindowPos(cfg.targetHwnd, nullptr, cfg.lockX, cfg.lockY, targetW, targetH,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
     }
 }
 
-static void StopSimple()
+void StopInstance(int id)
 {
-    auto& state = GetSimpleModeState();
+    auto& state = GetAppState();
 
-    if (isInputCurrentlyLocked)
+    for (auto& cfg : state.instances)
+    {
+        if (cfg.id != id)
+            continue;
+
+        cfg.hasInjected = false;
+        cfg.running = false;
+        cfg.instanceHandle = 0;
+        cfg.windowLockEnabled = false;
+        cfg.targetHwnd = nullptr;
+        cfg.targetPid = 0;
+        cfg.statusMessage = "Stopped. Start again any time.";
+        break;
+    }
+
+    // If nothing is running any more, release the global locks
+    bool anyRunning = false;
+    for (const auto& cfg : state.instances)
+        anyRunning = anyRunning || cfg.hasInjected;
+
+    if (!anyRunning && isInputCurrentlyLocked)
     {
         LockInput(false);
         RestartExplorer();
         isInputCurrentlyLocked = false;
     }
 
+    RebindAllInputDevices();
+}
+
+void RebindAllInputDevices()
+{
+    auto& state = GetAppState();
+
     UnbindAllInputDevices();
 
-    state.hasInjected = false;
-    state.running = false;
-    state.instanceHandle = 0;
-    state.windowLockEnabled = false;
-    state.targetHwnd = nullptr;
-    state.targetPid = 0;
-    state.statusMessage = "Stopped. You can start again (restart the app if needed).";
+    for (const auto& cfg : state.instances)
+    {
+        if (!cfg.hasInjected)
+            continue;
+
+        for (int i = 0; i < (int)cfg.mouseEnabled.size() && i < (int)state.mice.size(); ++i)
+        {
+            if (cfg.mouseEnabled[i])
+                BindInputDevice(state.mice[i].handle, false);
+        }
+
+        for (int i = 0; i < (int)cfg.keyboardEnabled.size() && i < (int)state.keyboards.size(); ++i)
+        {
+            if (cfg.keyboardEnabled[i])
+                BindInputDevice(state.keyboards[i].handle, true);
+        }
+    }
 }
 
 // Draws a selectable list row inside a card
@@ -471,58 +533,171 @@ static bool ListRow(const char* id, const std::string& primary, const std::strin
     return clicked;
 }
 
-void RenderSimpleMode()
+// A compact row for the sidebar: name + status dot. Returns true when clicked.
+// Sets removeRequested=true if the user chose "Remove app" from the context menu.
+static bool SidebarRow(int id, const std::string& name, bool running, bool selected, bool& removeRequested)
 {
-    auto& state = GetSimpleModeState();
+    removeRequested = false;
+    ImGui::PushID(id);
 
-    // Controllers aren't raw input, so poll them each frame to light up the active pad
-    PollControllerActivity();
+    const float rowHeight = 42.0f;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
 
-    // Keep the app window locked to its assigned display
-    ApplyWindowLock();
+    const bool clicked = ImGui::InvisibleButton("##sbrow", ImVec2(width, rowHeight));
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 rowMax(p.x + width, p.y + rowHeight);
 
-    // Keep process list fresh-ish
-    static int frameCounter = 0;
-    if (frameCounter++ % 120 == 0)
-        RefreshSimpleModeProcesses();
+    ImU32 bg = selected ? IM_COL32(99, 102, 241, 70)
+                        : (hovered ? IM_COL32(255, 255, 255, 14) : IM_COL32(0, 0, 0, 0));
+    draw->AddRectFilled(p, rowMax, bg, 8.0f);
 
-    const float fullWidth = ImGui::GetContentRegionAvail().x;
+    if (selected)
+        draw->AddRectFilled(p, ImVec2(p.x + 3, rowMax.y), ColorAccent(), 2.0f);
 
-    // ---------------- Header ----------------
-    ImGui::PushFont(g_FontBold);
-    ImGui::TextUnformatted("SplitPlay Dashboard");
-    ImGui::PopFont();
+    // Status dot
+    const ImU32 dot = running ? ColorSuccess() : IM_COL32(120, 126, 140, 255);
+    draw->AddCircleFilled(ImVec2(p.x + 16, p.y + rowHeight * 0.5f), 5.0f, dot);
 
-    ImGui::SameLine();
-    ImGui::PushFont(g_FontSmall);
-    if (state.hasInjected)
-        StatusPill("RUNNING", ColorSuccess());
-    else
-        StatusPill("READY", ColorAccent());
-    ImGui::PopFont();
+    draw->AddText(g_FontRegular, g_FontRegular->FontSize,
+                  ImVec2(p.x + 32, p.y + 11), IM_COL32(238, 240, 245, 255), name.c_str());
 
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
-    ImGui::TextWrapped("Send an app or game to your second screen and control it with the devices you choose, "
-                       "while your keyboard and mouse keep working on the main screen.");
-    ImGui::PopStyleColor();
+    // Right-click a row to remove that app
+    if (ImGui::BeginPopupContextItem("##sbctx"))
+    {
+        if (ImGui::MenuItem("Remove app", nullptr, false, !running))
+        {
+            removeRequested = true;
+        }
+
+        if (running)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
+            ImGui::TextUnformatted("Stop it first");
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    ImGui::PopID();
+    return clicked;
+}
+
+// Human-readable device summary for an instance
+static std::string DescribeDevices(const InstanceConfig& cfg)
+{
+    auto& state = GetAppState();
+    std::string out;
+
+    for (int i = 0; i < (int)cfg.controllerEnabled.size() && i < (int)state.controllers.size(); ++i)
+        if (cfg.controllerEnabled[i]) out += "controller, ";
+
+    for (int i = 0; i < (int)cfg.mouseEnabled.size() && i < (int)state.mice.size(); ++i)
+        if (cfg.mouseEnabled[i]) out += "mouse, ";
+
+    for (int i = 0; i < (int)cfg.keyboardEnabled.size() && i < (int)state.keyboards.size(); ++i)
+        if (cfg.keyboardEnabled[i]) out += "keyboard, ";
+
+    if (out.empty())
+        return "No devices assigned";
+
+    out.erase(out.size() - 2);
+    return out;
+}
+
+static std::string DescribeDisplay(const InstanceConfig& cfg)
+{
+    auto& state = GetAppState();
+
+    if (!cfg.moveWindowToDisplay)
+        return "Stays where it opens";
+
+    if (cfg.selectedMonitorIndex >= 0 && cfg.selectedMonitorIndex < (int)state.monitors.size())
+        return MonitorLabel(state.monitors[cfg.selectedMonitorIndex]);
+
+    return "Display";
+}
+
+// ---------------- Configure pane (per selected instance) ----------------
+static void RenderConfigurePane()
+{
+    auto& state = GetAppState();
+    auto* cfgPtr = GetSelectedInstance();
+
+    if (cfgPtr == nullptr)
+    {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
+        ImGui::TextWrapped("No app selected. Click \"+ Add app\" in the sidebar to set one up.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    auto& cfg = *cfgPtr;
+    const float fullWidth = ImGui::GetContentRegionAvail().x - 8;
+
+    // Name + status header
+    {
+        char nameBuf[128];
+        strncpy_s(nameBuf, utf8_encode(cfg.name).c_str(), sizeof(nameBuf) - 1);
+        nameBuf[sizeof(nameBuf) - 1] = '\0';
+
+        ImGui::SetNextItemWidth(320);
+        if (ImGui::InputText("##instname", nameBuf, sizeof(nameBuf)))
+            cfg.name = utf8_decode(nameBuf);
+
+        ImGui::SameLine();
+        if (cfg.hasInjected)
+            StatusPill("RUNNING", ColorSuccess());
+        else
+            StatusPill("NOT RUNNING", ColorMuted());
+
+        // Remove this app from the list
+        ImGui::SameLine();
+
+        const bool isRunning = cfg.hasInjected;
+        if (isRunning) PushDisabledLocal();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.14f, 0.16f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.18f, 0.20f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.55f, 0.20f, 0.22f, 1.0f));
+        if (ImGui::Button("Remove", ImVec2(110, 0)))
+        {
+            RemoveInstance(cfg.id);
+            ImGui::PopStyleColor(3);
+            if (isRunning) PopDisabledLocal();
+            return;
+        }
+        ImGui::PopStyleColor(3);
+        if (isRunning) PopDisabledLocal();
+
+        if (isRunning)
+        {
+            ImGui::SameLine();
+            ImGui::PushFont(g_FontSmall);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
+            ImGui::TextUnformatted("(stop it first to remove)");
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+        }
+    }
 
     ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
 
-    // ===== Step 1: Game =====
+    // ===== Step 1: App =====
     if (CardBegin("##card_game", ImVec2(fullWidth, 0), "1. Choose the app or game",
                   "Launch something new, or attach to an app that is already running."))
     {
-        if (ImGui::RadioButton("Launch a new app##src", state.launchNewInstance))
-            state.launchNewInstance = true;
+        if (ImGui::RadioButton("Launch a new app##src", cfg.launchNewInstance))
+            cfg.launchNewInstance = true;
         ImGui::SameLine();
-        if (ImGui::RadioButton("Use a running app##src", !state.launchNewInstance))
-            state.launchNewInstance = false;
+        if (ImGui::RadioButton("Use a running app##src", !cfg.launchNewInstance))
+            cfg.launchNewInstance = false;
 
         ImGui::Spacing();
 
-        if (state.launchNewInstance)
+        if (cfg.launchNewInstance)
         {
             if (ImGui::Button("Browse for an .exe", ImVec2(220, 0)))
             {
@@ -538,14 +713,14 @@ void RenderSimpleMode()
                 ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
                 if (GetOpenFileNameW(&ofn) == TRUE)
-                    state.gameFilepath = szFile;
+                    cfg.gameFilepath = szFile;
             }
 
             ImGui::SameLine();
-            if (state.gameFilepath.empty())
+            if (cfg.gameFilepath.empty())
                 ImGui::TextDisabled("Nothing selected yet");
             else
-                ImGui::TextWrapped("%ws", std::filesystem::path(state.gameFilepath).filename().c_str());
+                ImGui::TextWrapped("%ws", std::filesystem::path(cfg.gameFilepath).filename().c_str());
         }
         else
         {
@@ -572,11 +747,11 @@ void RenderSimpleMode()
                     continue;
 
                 any = true;
-                const bool selected = (state.runningPid == proc.pid);
+                const bool selected = (cfg.runningPid == proc.pid);
                 if (ListRow(("proc" + std::to_string(i)).c_str(), name, title, selected))
                 {
-                    state.runningPid = proc.pid;
-                    state.runningProcessName = proc.name;
+                    cfg.runningPid = proc.pid;
+                    cfg.runningProcessName = proc.name;
                 }
             }
 
@@ -586,8 +761,8 @@ void RenderSimpleMode()
             ImGui::EndChild();
 
             ImGui::Spacing();
-            if (state.runningPid != 0)
-                ImGui::Text("Selected: %ws (PID %lu)", state.runningProcessName.c_str(), state.runningPid);
+            if (cfg.runningPid != 0)
+                ImGui::Text("Selected: %ws (PID %lu)", cfg.runningProcessName.c_str(), cfg.runningPid);
         }
     }
     CardEnd();
@@ -596,7 +771,7 @@ void RenderSimpleMode()
 
     // ===== Step 2: Display =====
     if (CardBegin("##card_display", ImVec2(fullWidth, 0), "2. Choose the display",
-                  "Where should the window appear?"))
+                  "Where should this app's window appear?"))
     {
         if (state.monitors.empty())
         {
@@ -609,16 +784,16 @@ void RenderSimpleMode()
                 const auto& monitor = state.monitors[i];
                 auto primary = MonitorLabel(monitor);
                 std::wstring secondary = monitor.isPrimary ? L"Primary display" : L"Secondary display";
-                const bool selected = state.selectedMonitorIndex == i;
+                const bool selected = cfg.selectedMonitorIndex == i;
 
                 if (DeviceRow(("mon" + std::to_string(i)).c_str(), DeviceIcon::Display,
                               primary, utf8_encode(secondary), true, selected))
-                    state.selectedMonitorIndex = i;
+                    cfg.selectedMonitorIndex = i;
             }
         }
 
         ImGui::Spacing();
-        Toggle("Move the window to this display", &state.moveWindowToDisplay);
+        Toggle("Move the window to this display", &cfg.moveWindowToDisplay);
     }
     CardEnd();
 
@@ -626,7 +801,7 @@ void RenderSimpleMode()
 
     // ===== Step 3: Devices =====
     if (CardBegin("##card_devices", ImVec2(fullWidth, 0), "3. Assign devices",
-                  "Click a device to send it to the target app. Devices that are ON control the app; everything else keeps controlling Windows."))
+                  "A device can belong to only one app. Turning it ON here removes it from every other app."))
     {
         // Identify helper: move or click a mouse/keyboard and its row lights up green
         ImGui::PushFont(g_FontSmall);
@@ -636,17 +811,13 @@ void RenderSimpleMode()
         ImGui::PopFont();
         ImGui::Spacing();
 
-        auto& ctrlEnabled = state.controllerEnabled;
-        auto& mouseEnabled = state.mouseEnabled;
-        auto& kbEnabled = state.keyboardEnabled;
-
         // ---- Controllers ----
         ImGui::PushFont(g_FontBold);
         ImGui::TextUnformatted("Controllers");
         ImGui::PopFont();
         ImGui::PushFont(g_FontSmall);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.62f, 0.70f, 1.0f));
-        ImGui::TextWrapped("Pick the controller the app should listen to.");
+        ImGui::TextWrapped("Pick the controller this app should listen to.");
         ImGui::PopStyleColor();
         ImGui::PopFont();
         ImGui::Spacing();
@@ -658,8 +829,8 @@ void RenderSimpleMode()
             for (int i = 0; i < (int)state.controllers.size(); ++i)
             {
                 const auto& c = state.controllers[i];
-                const bool selected = state.selectedControllerIndex == i;
-                const bool active = ctrlEnabled[i];
+                const bool selected = cfg.selectedControllerIndex == i;
+                const bool active = i < (int)cfg.controllerEnabled.size() && cfg.controllerEnabled[i];
                 const char* api = c.api == ControllerApi::XInput ? "Xbox / XInput controller" :
                                   c.api == ControllerApi::OpenXInput ? "XInput controller (OpenXinput)" :
                                   "DirectInput controller";
@@ -669,14 +840,10 @@ void RenderSimpleMode()
                 if (DeviceRow(("ctrl" + std::to_string(i)).c_str(), DeviceIcon::Controller,
                               utf8_encode(c.name), api, active, selected, glowing))
                 {
-                    // Click selects and toggles it on; if it was on and you click the selected one, it turns off
                     if (selected && active)
-                        ctrlEnabled[i] = false;
+                        AssignController(cfg.id, i, false);
                     else
-                    {
-                        state.selectedControllerIndex = i;
-                        ctrlEnabled[i] = true;
-                    }
+                        AssignController(cfg.id, i, true);
                 }
             }
         }
@@ -702,20 +869,17 @@ void RenderSimpleMode()
         {
             for (int i = 0; i < (int)state.mice.size(); ++i)
             {
-                const bool selected = state.selectedMouseIndex == i;
-                const bool active = mouseEnabled[i];
+                const bool selected = cfg.selectedMouseIndex == i;
+                const bool active = i < (int)cfg.mouseEnabled.size() && cfg.mouseEnabled[i];
 
                 if (DeviceRow(("mouse" + std::to_string(i)).c_str(), DeviceIcon::Mouse,
                               utf8_encode(state.mice[i].name), "Mouse", active, selected,
                               IsDeviceActive(state.mice[i].handle)))
                 {
                     if (selected && active)
-                        mouseEnabled[i] = false;
+                        AssignMouse(cfg.id, i, false);
                     else
-                    {
-                        state.selectedMouseIndex = i;
-                        mouseEnabled[i] = true;
-                    }
+                        AssignMouse(cfg.id, i, true);
                 }
             }
         }
@@ -741,20 +905,17 @@ void RenderSimpleMode()
         {
             for (int i = 0; i < (int)state.keyboards.size(); ++i)
             {
-                const bool selected = state.selectedKeyboardIndex == i;
-                const bool active = kbEnabled[i];
+                const bool selected = cfg.selectedKeyboardIndex == i;
+                const bool active = i < (int)cfg.keyboardEnabled.size() && cfg.keyboardEnabled[i];
 
                 if (DeviceRow(("kb" + std::to_string(i)).c_str(), DeviceIcon::Keyboard,
                               utf8_encode(state.keyboards[i].name), "Keyboard", active, selected,
                               IsDeviceActive(state.keyboards[i].handle)))
                 {
                     if (selected && active)
-                        kbEnabled[i] = false;
+                        AssignKeyboard(cfg.id, i, false);
                     else
-                    {
-                        state.selectedKeyboardIndex = i;
-                        kbEnabled[i] = true;
-                    }
+                        AssignKeyboard(cfg.id, i, true);
                 }
             }
         }
@@ -770,22 +931,22 @@ void RenderSimpleMode()
     // ===== Step 4: Options + Start =====
     if (CardBegin("##card_start", ImVec2(fullWidth, 0), "4. Start", nullptr))
     {
-        Toggle("Show in-game mouse cursor", &state.showFakeCursor);
-        Toggle("Freeze app input until unlocked (Home key)", &state.freezeInputUntilStart);
-        Toggle("Lock the real keyboard/mouse while playing", &state.lockRealInput);
+        Toggle("Show in-game mouse cursor", &cfg.showFakeCursor);
+        Toggle("Freeze app input until unlocked (End key)", &cfg.freezeInputUntilStart);
+        Toggle("Lock the real keyboard/mouse while playing", &cfg.lockRealInput);
 
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
 
-        if (!state.hasInjected)
+        if (!cfg.hasInjected)
         {
-            const bool canStart = (state.launchNewInstance ? !state.gameFilepath.empty() : state.runningPid != 0);
+            const bool canStart = (cfg.launchNewInstance ? !cfg.gameFilepath.empty() : cfg.runningPid != 0);
 
             PushAccentButton(true);
             if (!canStart) PushDisabledLocal();
-            if (ImGui::Button("Start", ImVec2(-1, 46)))
-                LaunchSimple();
+            if (ImGui::Button("Start this app", ImVec2(-1, 46)))
+                StartInstance(cfg.id);
             if (!canStart) PopDisabledLocal();
             PopAccentButton();
 
@@ -801,25 +962,191 @@ void RenderSimpleMode()
         else
         {
             PushAccentButton(false);
-            if (ImGui::Button("Stop", ImVec2(-1, 46)))
-                StopSimple();
+            if (ImGui::Button("Stop this app", ImVec2(-1, 46)))
+                StopInstance(cfg.id);
             PopAccentButton();
 
             ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
-            ImGui::TextWrapped("%s", state.statusMessage.c_str());
+            ImGui::TextWrapped("%s", cfg.statusMessage.c_str());
             ImGui::PopStyleColor();
         }
     }
     CardEnd();
+}
+
+// ---------------- Running pane (all instances) ----------------
+static void RenderRunningPane()
+{
+    auto& state = GetAppState();
+    const float fullWidth = ImGui::GetContentRegionAvail().x - 8;
+
+    if (state.instances.empty())
+    {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
+        ImGui::TextWrapped("Nothing added yet. Use \"+ Add app\" in the sidebar.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    for (auto& cfg : state.instances)
+    {
+        const std::string cardId = "##run" + std::to_string(cfg.id);
+
+        if (CardBegin(cardId.c_str(), ImVec2(fullWidth, 0), utf8_encode(cfg.name).c_str(),
+                      cfg.hasInjected ? "Running" : "Not running"))
+        {
+            ImGui::PushFont(g_FontSmall);
+
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.66f, 0.74f, 1.0f));
+            ImGui::Text("Display: %s", DescribeDisplay(cfg).c_str());
+            ImGui::Text("Devices: %s", DescribeDevices(cfg).c_str());
+            ImGui::PopStyleColor();
+
+            if (cfg.hasInjected)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.53f, 0.87f, 0.63f, 1.0f));
+                ImGui::Text("Injected instance #%u", cfg.instanceHandle);
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::PopFont();
+
+            ImGui::Spacing();
+
+            ImGui::PushID(cfg.id);
+
+            if (cfg.hasInjected)
+            {
+                PushAccentButton(false);
+                if (ImGui::Button("Stop", ImVec2(160, 34)))
+                    StopInstance(cfg.id);
+                PopAccentButton();
+
+                ImGui::SameLine();
+                if (ImGui::Button("Select", ImVec2(120, 34)))
+                    state.selectedInstanceId = cfg.id;
+            }
+            else
+            {
+                PushAccentButton(true);
+                if (ImGui::Button("Start", ImVec2(160, 34)))
+                    StartInstance(cfg.id);
+                PopAccentButton();
+
+                ImGui::SameLine();
+                if (ImGui::Button("Configure", ImVec2(120, 34)))
+                    state.selectedInstanceId = cfg.id;
+            }
+
+            ImGui::PopID();
+        }
+        CardEnd();
+
+        ImGui::Spacing();
+    }
+}
+
+void RenderSimpleMode()
+{
+    auto& state = GetAppState();
+
+    // Controllers aren't raw input, so poll them each frame to light up the active pad
+    PollControllerActivity();
+
+    // Keep every app window locked to its assigned display
+    ApplyWindowLock();
+
+    // Keep process list fresh-ish
+    static int frameCounter = 0;
+    if (frameCounter++ % 120 == 0)
+        RefreshSimpleModeProcesses();
+
+    const float availHeight = ImGui::GetContentRegionAvail().y;
+
+    // ---------------- Left sidebar ----------------
+    ImGui::BeginChild("##sidebar", ImVec2(260, availHeight), true);
+
+    ImGui::PushFont(g_FontBold);
+    ImGui::TextUnformatted("Apps");
+    ImGui::PopFont();
 
     ImGui::Spacing();
-    ImGui::PushFont(g_FontSmall);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.54f, 0.62f, 1.0f));
-    ImGui::TextWrapped("Tip: run fullscreen games in windowed or borderless mode. Exclusive fullscreen can ignore being moved "
-                       "to another display.");
-    ImGui::PopStyleColor();
-    ImGui::PopFont();
+
+    PushAccentButton(true);
+    if (ImGui::Button("+ Add app", ImVec2(-1, 36)))
+        AddInstance();
+    PopAccentButton();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    int removeId = -1;
+
+    for (auto& cfg : state.instances)
+    {
+        const bool selected = (state.selectedInstanceId == cfg.id);
+        bool removeRequested = false;
+
+        if (SidebarRow(cfg.id, utf8_encode(cfg.name), cfg.hasInjected, selected, removeRequested))
+            state.selectedInstanceId = cfg.id;
+
+        if (removeRequested)
+            removeId = cfg.id;
+    }
+
+    if (removeId != -1)
+        RemoveInstance(removeId);
+
+    ImGui::Spacing();
+
+    // Footer: counts
+    {
+        int running = 0;
+        for (const auto& cfg : state.instances)
+            running += cfg.hasInjected ? 1 : 0;
+
+        ImGui::PushFont(g_FontSmall);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.54f, 0.62f, 1.0f));
+        ImGui::Text("%d added, %d running", (int)state.instances.size(), running);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    }
+
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // ---------------- Main area ----------------
+    ImGui::BeginChild("##main", ImVec2(0, availHeight), false);
+
+    static int activeTab = 0;
+    (void)activeTab;
+
+    if (ImGui::BeginTabBar("##tabs"))
+    {
+        if (ImGui::BeginTabItem("Setup"))
+        {
+            activeTab = 0;
+            ImGui::Spacing();
+            RenderConfigurePane();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Running"))
+        {
+            activeTab = 1;
+            ImGui::Spacing();
+            RenderRunningPane();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    ImGui::EndChild();
 }
 
 }
