@@ -54,6 +54,15 @@ struct SimpleModeState
 	unsigned int instanceHandle = 0;
 	std::string statusMessage = "";
 
+	// Window locking: remember what we forced so we can re-apply if the app moves itself
+	bool windowLockEnabled = false;
+	HWND targetHwnd = nullptr;
+	unsigned long targetPid = 0;
+	int lockX = 0;
+	int lockY = 0;
+	int lockWidth = 0;
+	int lockHeight = 0;
+
 	std::vector<MonitorInfo> monitors;
 	std::vector<ControllerInfo> controllers;
 	std::vector<DeviceInfo> mice;

@@ -6,6 +6,7 @@
 #include <hidusage.h>
 #include "splitplayutil.h"
 #include "Gui.h"
+#include "DeviceUtils.h"
 
 namespace SplitPlayHost
 {
@@ -36,15 +37,22 @@ void ProcessRawInput(HRAWINPUT rawInputHandle)
 	if (cbSize != GetRawInputData(rawInputHandle, RID_INPUT, &rawinput, &cbSize, sizeof(RAWINPUTHEADER)))
 		return;
 		
-	if (rawinput.header.dwType == RIM_TYPEKEYBOARD &&
-		rawinput.data.keyboard.Flags == RI_KEY_MAKE)
+	if (rawinput.header.dwType == RIM_TYPEKEYBOARD)
 	{
-		lastKeypressKeyboardHandle = (intptr_t)rawinput.header.hDevice;
+		if (rawinput.data.keyboard.Flags == RI_KEY_MAKE)
+			lastKeypressKeyboardHandle = (intptr_t)rawinput.header.hDevice;
+
+		// Record on any key event (press or release) so the row lights up promptly
+		RecordInputActivity((unsigned int)(uintptr_t)rawinput.header.hDevice, true);
+		NotifyActiveInputDevice((unsigned int)(uintptr_t)rawinput.header.hDevice, true);
 	}
-	else if (rawinput.header.dwType == RIM_TYPEMOUSE &&
-			 rawinput.data.mouse.usButtonFlags != 0)
+	else if (rawinput.header.dwType == RIM_TYPEMOUSE)
 	{
-		lastMouseClicked = (intptr_t)rawinput.header.hDevice;
+		if (rawinput.data.mouse.usButtonFlags != 0)
+			lastMouseClicked = (intptr_t)rawinput.header.hDevice;
+
+		RecordInputActivity((unsigned int)(uintptr_t)rawinput.header.hDevice, false);
+		NotifyActiveInputDevice((unsigned int)(uintptr_t)rawinput.header.hDevice, false);
 	}
 
 	if (lockInputWithTheEndKey && 

@@ -11,6 +11,7 @@ obj
 *.tlog
 *.lastbuildstate
 /SplitPlay.zip
+/SplitPlay/
 Profiles
 /src/SplitPlay/SplitPlayHost/imgui.ini
 /src/SplitPlay/tmp

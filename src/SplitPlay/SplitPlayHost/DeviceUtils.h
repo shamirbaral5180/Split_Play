@@ -46,16 +46,16 @@ std::vector<RunningProcessInfo> EnumerateWindowedProcesses();
 
 // ---- Live input activity tracking (used to highlight which physical device is which) ----
 
-// Starts/stops a background thread that watches for the most recently used input device.
-void StartInputActivityMonitor();
-void StopInputActivityMonitor();
+// Feeds a raw-input event into the activity tracker. Called from the host's raw input window.
+void RecordInputActivity(unsigned int deviceHandle, bool isKeyboard);
 
-// Returns the raw input device handle of the most recently used mouse/keyboard.
-// Returns 0 if nothing has been used yet.
-unsigned int GetLastActiveMouse();
-unsigned int GetLastActiveKeyboard();
-
-// True if the given device handle was the most recently used one (within the glow window).
+// True if the given mouse/keyboard device handle was used very recently (within the glow window).
 bool IsDeviceActive(unsigned int handle);
+
+// Polls connected controllers and remembers which one was last used.
+void PollControllerActivity();
+
+// True if the controller at this 1-based XInput slot was used very recently.
+bool IsControllerActive(unsigned int xinputSlot);
 
 }

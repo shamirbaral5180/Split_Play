@@ -15,6 +15,7 @@
 #include "splitplayutil.h"
 #include "KeyboardButtonFilter.h"
 #include "MessageFilterHook.h"
+#include "SetWindowPosHook.h"
 
 namespace SplitPlay
 {
@@ -297,6 +298,9 @@ void RawInput::ProcessRawInput(HRAWINPUT rawInputHandle, bool inForeground, cons
 			HwndSelector::UpdateMainHwnd(false);
 	
 		HwndSelector::UpdateWindowBounds();
+
+		// Re-apply the display lock in case the window drifted or was recreated
+		SetWindowPosHook::ApplyToMainWindow();
 	}
 	
 	

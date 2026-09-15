@@ -1,6 +1,7 @@
 #include "DeviceUtils.h"
 #include "Instance.h"
 #include <hidusage.h>
+#include <xinput.h>
 #include <algorithm>
 #include <cwchar>
 #include <filesystem>
@@ -239,159 +240,117 @@ std::vector<RunningProcessInfo> EnumerateWindowedProcesses()
 }
 
 // ---------------- Live input activity tracking ----------------
+//
+// Mice and keyboards arrive as raw input (fed in by the host's raw input window),
+// while controllers are polled through XInput. We only need "what was used recently"
+// so the UI can light up the matching row.
 
 static std::atomic<unsigned int> g_LastActiveMouse{ 0 };
 static std::atomic<unsigned int> g_LastActiveKeyboard{ 0 };
 static std::atomic<unsigned long long> g_LastMouseTick{ 0 };
 static std::atomic<unsigned long long> g_LastKeyboardTick{ 0 };
 
-static HANDLE g_MonitorThread = nullptr;
-static HANDLE g_MonitorStopEvent = nullptr;
-static HWND g_MonitorHwnd = nullptr;
+static std::atomic<unsigned int> g_LastActiveController{ 0 }; // 1-based XInput slot
+static std::atomic<unsigned long long> g_LastControllerTick{ 0 };
 
-LRESULT CALLBACK InputMonitorWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+static constexpr unsigned long long kGlowMs = 1500;
+
+void RecordInputActivity(unsigned int deviceHandle, bool isKeyboard)
 {
-	if (msg == WM_INPUT)
+	const auto tick = GetTickCount64();
+
+	if (isKeyboard)
 	{
-		RAWINPUT rawInput{};
-		UINT size = sizeof(rawInput);
-
-		if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, &rawInput, &size,
-							sizeof(RAWINPUTHEADER)) == size)
-		{
-			const auto handle = static_cast<unsigned int>(reinterpret_cast<uintptr_t>(rawInput.header.hDevice));
-			const auto tick = GetTickCount64();
-
-			if (rawInput.header.dwType == RIM_TYPEMOUSE)
-			{
-				g_LastActiveMouse.store(handle);
-				g_LastMouseTick.store(tick);
-			}
-			else if (rawInput.header.dwType == RIM_TYPEKEYBOARD)
-			{
-				g_LastActiveKeyboard.store(handle);
-				g_LastKeyboardTick.store(tick);
-			}
-		}
-
-		DefWindowProcW(hWnd, msg, wParam, lParam);
-		return 0;
+		g_LastActiveKeyboard.store(deviceHandle);
+		g_LastKeyboardTick.store(tick);
 	}
-
-	return DefWindowProcW(hWnd, msg, wParam, lParam);
-}
-
-DWORD WINAPI InputMonitorThread(LPVOID)
-{
-	const auto hInstance = GetModuleHandleW(nullptr);
-
-	WNDCLASSW wc{};
-	wc.lpfnWndProc = InputMonitorWndProc;
-	wc.hInstance = hInstance;
-	wc.lpszClassName = L"SplitPlayInputMonitor";
-
-	RegisterClassW(&wc);
-
-	g_MonitorHwnd = CreateWindowExW(0, wc.lpszClassName, L"SplitPlay Input Monitor", 0, 0, 0, 0, 0,
-									HWND_MESSAGE, nullptr, hInstance, nullptr);
-
-	if (g_MonitorHwnd != nullptr)
+	else
 	{
-		RAWINPUTDEVICE devices[2]{};
-		devices[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
-		devices[0].usUsage = HID_USAGE_GENERIC_MOUSE;
-		devices[0].dwFlags = RIDEV_INPUTSINK;
-		devices[0].hwndTarget = g_MonitorHwnd;
-
-		devices[1].usUsagePage = HID_USAGE_PAGE_GENERIC;
-		devices[1].usUsage = HID_USAGE_GENERIC_KEYBOARD;
-		devices[1].dwFlags = RIDEV_INPUTSINK;
-		devices[1].hwndTarget = g_MonitorHwnd;
-
-		RegisterRawInputDevices(devices, 2, sizeof(RAWINPUTDEVICE));
+		g_LastActiveMouse.store(deviceHandle);
+		g_LastMouseTick.store(tick);
 	}
-
-	MSG msg{};
-	while (true)
-	{
-		const DWORD wait = MsgWaitForMultipleObjects(1, &g_MonitorStopEvent, FALSE, INFINITE, QS_ALLINPUT);
-
-		if (wait == WAIT_OBJECT_0)
-			break;
-
-		while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
-		{
-			TranslateMessage(&msg);
-			DispatchMessageW(&msg);
-		}
-	}
-
-	if (g_MonitorHwnd != nullptr)
-	{
-		DestroyWindow(g_MonitorHwnd);
-		g_MonitorHwnd = nullptr;
-	}
-
-	UnregisterClassW(wc.lpszClassName, hInstance);
-
-	return 0;
-}
-
-void StartInputActivityMonitor()
-{
-	if (g_MonitorThread != nullptr)
-		return;
-
-	g_MonitorStopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-	g_MonitorThread = CreateThread(nullptr, 0, InputMonitorThread, nullptr, 0, nullptr);
-}
-
-void StopInputActivityMonitor()
-{
-	if (g_MonitorThread == nullptr)
-		return;
-
-	if (g_MonitorStopEvent != nullptr)
-		SetEvent(g_MonitorStopEvent);
-
-	WaitForSingleObject(g_MonitorThread, 2000);
-
-	CloseHandle(g_MonitorThread);
-	g_MonitorThread = nullptr;
-
-	if (g_MonitorStopEvent != nullptr)
-	{
-		CloseHandle(g_MonitorStopEvent);
-		g_MonitorStopEvent = nullptr;
-	}
-}
-
-unsigned int GetLastActiveMouse()
-{
-	return g_LastActiveMouse.load();
-}
-
-unsigned int GetLastActiveKeyboard()
-{
-	return g_LastActiveKeyboard.load();
 }
 
 bool IsDeviceActive(unsigned int handle)
 {
-	constexpr unsigned long long glowMs = 1500;
-
-	const auto now = GetTickCount64();
-
 	if (handle == 0)
 		return false;
 
-	if (g_LastActiveMouse.load() == handle && (now - g_LastMouseTick.load()) < glowMs)
+	const auto now = GetTickCount64();
+
+	if (g_LastActiveMouse.load() == handle && (now - g_LastMouseTick.load()) < kGlowMs)
 		return true;
 
-	if (g_LastActiveKeyboard.load() == handle && (now - g_LastKeyboardTick.load()) < glowMs)
+	if (g_LastActiveKeyboard.load() == handle && (now - g_LastKeyboardTick.load()) < kGlowMs)
 		return true;
 
 	return false;
+}
+
+void PollControllerActivity()
+{
+	// Load XInput dynamically (xinput1_4 isn't present on older Windows)
+	typedef DWORD(WINAPI* t_XInputGetState)(DWORD dwUserIndex, XINPUT_STATE* pState);
+
+	static t_XInputGetState getState = []
+	{
+		const wchar_t* candidates[] = { L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll" };
+
+		for (const auto* name : candidates)
+		{
+			if (auto module = LoadLibraryW(name))
+			{
+				if (auto fn = reinterpret_cast<t_XInputGetState>(GetProcAddress(module, "XInputGetState")))
+					return fn;
+
+				FreeLibrary(module);
+			}
+		}
+
+		return static_cast<t_XInputGetState>(nullptr);
+	}();
+
+	if (getState == nullptr)
+		return;
+
+	static XINPUT_GAMEPAD previous[4]{};
+
+	for (DWORD slot = 0; slot < 4; ++slot)
+	{
+		XINPUT_STATE current{};
+		if (getState(slot, &current) != ERROR_SUCCESS)
+			continue;
+
+		// Compare against the previous sample to detect movement/button presses.
+		const auto& now = current.Gamepad;
+		const auto& before = previous[slot];
+
+		const bool changed =
+			now.wButtons != before.wButtons ||
+			now.bLeftTrigger != before.bLeftTrigger ||
+			now.bRightTrigger != before.bRightTrigger ||
+			now.sThumbLX != before.sThumbLX ||
+			now.sThumbLY != before.sThumbLY ||
+			now.sThumbRX != before.sThumbRX ||
+			now.sThumbRY != before.sThumbRY;
+
+		previous[slot] = now;
+
+		if (changed)
+		{
+			g_LastActiveController.store(slot + 1);
+			g_LastControllerTick.store(GetTickCount64());
+		}
+	}
+}
+
+bool IsControllerActive(unsigned int xinputSlot)
+{
+	if (xinputSlot == 0)
+		return false;
+
+	const auto now = GetTickCount64();
+	return g_LastActiveController.load() == xinputSlot && (now - g_LastControllerTick.load()) < kGlowMs;
 }
 
 }

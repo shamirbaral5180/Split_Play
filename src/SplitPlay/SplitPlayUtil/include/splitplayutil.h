@@ -22,3 +22,14 @@ extern "C" __declspec(dllexport) void RestartExplorer();
 
 extern "C" __declspec(dllexport) void SetTaskbarVisibility(bool autoHide, bool alwaysOnTop);
 extern "C" __declspec(dllexport) void GetTaskbarVisibility(bool* autoHide, bool* alwaysOnTop);
+
+// ---- Exclusive device binding ----
+// Blocks input from specific physical devices so it cannot reach any other application.
+// A device is identified by its raw input device handle (as returned by GetRawInputDeviceList).
+// This lets an assigned mouse/keyboard fully belong to one app without clicking/typing elsewhere.
+extern "C" __declspec(dllexport) void BindInputDevice(unsigned int deviceHandle, bool isKeyboard);
+extern "C" __declspec(dllexport) void UnbindAllInputDevices();
+
+// Tells the input locker which physical device most recently produced an event,
+// so it can block that device while it is bound to an app.
+extern "C" __declspec(dllexport) void NotifyActiveInputDevice(unsigned int deviceHandle, bool isKeyboard);

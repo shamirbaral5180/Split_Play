@@ -171,7 +171,6 @@ void ConfigureInstance(SplitPlayInstanceHandle instanceHandle, Instance& instanc
 void FirstTimeSetup()
 {
     InitialiseRawInput();
-    StartInputActivityMonitor();
 
     wchar_t pathchars[MAX_PATH];
     GetModuleFileNameW(NULL, pathchars, MAX_PATH);
@@ -313,12 +312,28 @@ bool LaunchSimple()
 
     SetExternalFreezeFakeInput(instanceHandle, state.freezeInputUntilStart);
 
+    // Bind the assigned mouse/keyboard so their input cannot reach any other app
+    if (instance.mouseHandle != -1)
+        BindInputDevice((unsigned int)instance.mouseHandle, false);
+
+    if (instance.keyboardHandle != -1)
+        BindInputDevice((unsigned int)instance.keyboardHandle, true);
+
     if (state.lockRealInput)
     {
         LockInput(true);
         SuspendExplorer();
         isInputCurrentlyLocked = true;
     }
+
+    // Remember the window target so we can keep it locked to the display
+    state.windowLockEnabled = setWindowPos;
+    state.lockX = wx;
+    state.lockY = wy;
+    state.lockWidth = ww;
+    state.lockHeight = wh;
+    state.targetHwnd = nullptr;
+    state.targetPid = instance.runtime ? instance.pid : pid;
 
     instance.hasBeenInjected = true;
 
@@ -327,6 +342,76 @@ bool LaunchSimple()
     state.statusMessage = "Running. The app is on the selected display.";
 
     return true;
+}
+
+// Finds the main visible window of a process so we can re-apply the display lock
+static HWND FindMainWindowForPid(unsigned long pid)
+{
+    HWND found = nullptr;
+
+    struct FindState { unsigned long pid; HWND hwnd; };
+    FindState findState{ pid, nullptr };
+
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
+    {
+        auto& find = *reinterpret_cast<FindState*>(lParam);
+
+        DWORD windowPid = 0;
+        GetWindowThreadProcessId(hwnd, &windowPid);
+
+        if (windowPid != find.pid || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr)
+            return TRUE;
+
+        if (GetWindowTextLengthW(hwnd) == 0)
+            return TRUE;
+
+        find.hwnd = hwnd;
+        return FALSE;
+    }, reinterpret_cast<LPARAM>(&findState));
+
+    found = findState.hwnd;
+    return found;
+}
+
+// Periodically force the target window back onto the chosen display.
+// The SetWindowPos/MoveWindow hooks cover apps that call Windows APIs, but some games
+// reposition by other means, so we also nudge the window directly from the host.
+static void ApplyWindowLock()
+{
+    auto& state = GetSimpleModeState();
+
+    if (!state.hasInjected || !state.windowLockEnabled)
+        return;
+
+    if (state.targetHwnd == nullptr || !IsWindow(state.targetHwnd))
+    {
+        unsigned long pid = state.targetPid;
+
+        if (pid != 0)
+            state.targetHwnd = FindMainWindowForPid(pid);
+    }
+
+    if (state.targetHwnd == nullptr || !IsWindow(state.targetHwnd))
+        return;
+
+    RECT current{};
+    if (!GetWindowRect(state.targetHwnd, &current))
+        return;
+
+    const int targetW = state.lockWidth;
+    const int targetH = state.lockHeight;
+
+    const bool offTarget =
+        current.left != state.lockX ||
+        current.top != state.lockY ||
+        (current.right - current.left) != targetW ||
+        (current.bottom - current.top) != targetH;
+
+    if (offTarget)
+    {
+        SetWindowPos(state.targetHwnd, nullptr, state.lockX, state.lockY, targetW, targetH,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 }
 
 static void StopSimple()
@@ -340,9 +425,14 @@ static void StopSimple()
         isInputCurrentlyLocked = false;
     }
 
+    UnbindAllInputDevices();
+
     state.hasInjected = false;
     state.running = false;
     state.instanceHandle = 0;
+    state.windowLockEnabled = false;
+    state.targetHwnd = nullptr;
+    state.targetPid = 0;
     state.statusMessage = "Stopped. You can start again (restart the app if needed).";
 }
 
@@ -384,6 +474,12 @@ static bool ListRow(const char* id, const std::string& primary, const std::strin
 void RenderSimpleMode()
 {
     auto& state = GetSimpleModeState();
+
+    // Controllers aren't raw input, so poll them each frame to light up the active pad
+    PollControllerActivity();
+
+    // Keep the app window locked to its assigned display
+    ApplyWindowLock();
 
     // Keep process list fresh-ish
     static int frameCounter = 0;
@@ -568,8 +664,10 @@ void RenderSimpleMode()
                                   c.api == ControllerApi::OpenXInput ? "XInput controller (OpenXinput)" :
                                   "DirectInput controller";
 
+                const bool glowing = c.api == ControllerApi::XInput && IsControllerActive(c.index);
+
                 if (DeviceRow(("ctrl" + std::to_string(i)).c_str(), DeviceIcon::Controller,
-                              utf8_encode(c.name), api, active, selected))
+                              utf8_encode(c.name), api, active, selected, glowing))
                 {
                     // Click selects and toggles it on; if it was on and you click the selected one, it turns off
                     if (selected && active)

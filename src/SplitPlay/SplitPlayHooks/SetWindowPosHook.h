@@ -9,13 +9,18 @@ class SetWindowPosHook final : public Hook
 {
 private:
 	HookInfo hookInfo{};
-		
+	HookInfo hookInfoMoveWindow{};
+	HookInfo hookInfoSetWindowPlacement{};
+
 public:
 	static int width;
 	static int height;
 	static int posx;
 	static int posy;
-	
+
+	// When true, the window is continuously forced to the position/size above
+	static bool lockWindow;
+
 	const char* GetHookName() const override { return "Set Window Position"; }
 	const char* GetHookDescription() const override
 	{
@@ -26,6 +31,9 @@ public:
 	void ShowGuiStatus() override;
 	void InstallImpl() override;
 	void UninstallImpl() override;
+
+	// Immediately moves the selected main window to the locked position/size
+	static void ApplyToMainWindow();
 };
 
 }

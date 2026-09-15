@@ -35,8 +35,19 @@ This is built on top of the open-source SplitPlay hooking library (originally Pr
 
 ### Find out which device is which
 
-Move a mouse or press a key, and the matching row **lights up green** so you know exactly which physical
-device that entry refers to before you turn it on or off.
+Move a mouse, press a key, or move your controller, and the matching row **lights up green** so you know
+exactly which physical device that entry refers to before you turn it on or off.
+
+### Devices belong to the app
+
+When you switch a mouse or keyboard ON for an app, SplitPlay **binds that device to the app**: its clicks
+and key presses go only to the app and no longer leak to whatever else is on screen. Everything you left
+OFF keeps controlling Windows normally.
+
+### The window stays on its display
+
+Once you assign a display, SplitPlay moves the app window there and **keeps it locked** to that display
+and size. If the app tries to move or resize itself, it is put back.
 
 ## Controls
 

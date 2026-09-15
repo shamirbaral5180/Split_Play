@@ -391,6 +391,9 @@ DWORD WINAPI PipeThread(LPVOID lpParameter)
 				SetWindowPosHook::width = body->width;
 				SetWindowPosHook::height = body->height;
 
+				// Move the window right away in case the app never repositions itself
+				SetWindowPosHook::ApplyToMainWindow();
+
 				break;
 			}
 			case SplitPlayPipe::PipeMessageType::SetCreateSingleHIDName:

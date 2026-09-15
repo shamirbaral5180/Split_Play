@@ -9,6 +9,10 @@
 
 #pragma comment(linker, "/export:SetTaskbarVisibility")
 #pragma comment(linker, "/export:GetTaskbarVisibility")
+
+#pragma comment(linker, "/export:BindInputDevice")
+#pragma comment(linker, "/export:UnbindAllInputDevices")
+#pragma comment(linker, "/export:NotifyActiveInputDevice")
 #else
 #pragma comment(linker, "/export:_LockInput")
 
@@ -17,6 +21,10 @@
 
 #pragma comment(linker, "/export:_SetTaskbarVisibility")
 #pragma comment(linker, "/export:_GetTaskbarVisibility")
+
+#pragma comment(linker, "/export:_BindInputDevice")
+#pragma comment(linker, "/export:_UnbindAllInputDevices")
+#pragma comment(linker, "/export:_NotifyActiveInputDevice")
 #endif
 
 
